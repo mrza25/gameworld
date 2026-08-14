@@ -12,4 +12,9 @@ class ConsoleGame extends Model
       'status'=>ConsoleGameStatus::class,
 
     ];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
 }
