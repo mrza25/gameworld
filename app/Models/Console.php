@@ -3,13 +3,17 @@
 namespace App\Models;
 
 use App\ConsoleStatus;
-use Illuminate\Database\Eloquent\Casts\AsArrayObject;
+use Database\Factories\ConsoleFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+
 class Console extends Model
 {
+    /** @use HasFactory<ConsoleFactory> */
+    use HasFactory;
     protected $casts = [
         'status'=> ConsoleStatus::class,
     ];
