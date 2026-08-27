@@ -14,20 +14,23 @@ class RegisteredUser extends Controller
     }
 
     public function store(Request $request)
-    {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'phonenumber' => 'required|numeric',
-            'password' => 'required|string|min:8|max:255',
-        ]);
+{
+    $validated = $request->validate([
+        'name' => ['required', 'string', 'max:255'],
+        'phonenumber' => ['required', 'numeric', 'unique:users,phonenumber'],
+        'password' => ['required', 'string', 'min:8', 'max:255', 'confirmed'],
+    ]);
 
-        $user =User::create([
-            'name' => $request->name,
-            'phonenumber' => $request->phonenumber,
-            'password' => bcrypt($request->password),
-        ]);
-        Auth::login($user);
+    $user = User::create([
+        'name' => $validated['name'],
+        'phonenumber' => $validated['phonenumber'],
+        'password' => bcrypt($validated['password']),
+    ]);
 
-        return redirect()->intended('/');
-    }
+    Auth::login($user);
+
+    $request->session()->regenerate();
+
+    return redirect()->intended('/');
+}
 }

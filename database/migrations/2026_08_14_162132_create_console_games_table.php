@@ -6,35 +6,29 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('console_game', function (Blueprint $table) {
-    $table->id();
+            $table->id();
 
-    $table->foreignId('console_id')
-        ->constrained()
-        ->cascadeOnDelete();
+            $table->foreignId('console_id')
+                ->constrained()
+                ->cascadeOnDelete();
 
-    $table->foreignId('game_id')
-        ->constrained()
-        ->cascadeOnDelete();
+            $table->foreignId('game_id')
+                ->constrained()
+                ->cascadeOnDelete();
 
-    $table->string('status')->default('pending');
+            $table->string('status')->default('pending');
 
-    $table->timestamp('installed_at')->nullable();
+            $table->timestamp('installed_at')->nullable();
 
-    $table->timestamps();
+            $table->timestamps();
 
-    $table->unique(['console_id', 'game_id']);
-});
+            $table->unique(['console_id', 'game_id']);
+        });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('console_game');

@@ -29,5 +29,11 @@ class Console extends Model
             ->withPivot('status', 'installed_at')
             ->withTimestamps();
     }
+
+    protected $fillable = [
+    'user_id',
+    'type',
+    'status',
+];
 }
 

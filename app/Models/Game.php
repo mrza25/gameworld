@@ -15,4 +15,11 @@ class Game extends Model
             ->withPivot('status')
             ->withTimestamps();
     }
+
+    protected $fillable = [
+        'title',
+        'genre',
+        'platform',
+        'size',
+    ];
 }
