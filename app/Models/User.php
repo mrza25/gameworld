@@ -55,5 +55,10 @@ class User extends Authenticatable
     public function consoles(): HasMany
 {
     return $this->hasMany(Console::class);
+
+}
+public function orders(): HasMany
+{
+    return $this->hasMany(Order::class);
 }
 }

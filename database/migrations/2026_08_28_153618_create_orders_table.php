@@ -15,9 +15,11 @@ return new class extends Migration
                 ->constrained()
                 ->cascadeOnDelete();
 
-            $table->string('status')->default('pending');
+            $table->foreignId('console_id')
+                ->constrained()
+                ->cascadeOnDelete();
 
-            $table->decimal('total_price', 12, 2)->default(0);
+            $table->string('status')->default('pending');
 
             $table->timestamps();
         });

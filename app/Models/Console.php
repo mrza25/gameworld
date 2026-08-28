@@ -35,5 +35,9 @@ class Console extends Model
     'type',
     'status',
 ];
+public function orders(): HasMany
+{
+    return $this->hasMany(Order::class);
+}
 }
 

@@ -14,7 +14,11 @@ class ConsoleGameController extends Controller
         Gate::authorize('manageGames', $console);
 
         $validated = $request->validate([
-            'game_id' => ['required', 'exists:games,id'],
+            'game_id' => [
+                'required',
+                'integer',
+                'exists:games,id',
+            ],
         ]);
 
         $console->games()->syncWithoutDetaching([
@@ -23,10 +27,7 @@ class ConsoleGameController extends Controller
             ],
         ]);
 
-        return back()->with(
-            'success',
-            'Game added to console successfully.'
-        );
+        return back()->with('success', 'Game added to console successfully.');
     }
 
     public function destroy(Console $console, Game $game)
@@ -35,9 +36,6 @@ class ConsoleGameController extends Controller
 
         $console->games()->detach($game->id);
 
-        return back()->with(
-            'success',
-            'Game removed from console successfully.'
-        );
+        return back()->with('success', 'Game removed from console.');
     }
 }

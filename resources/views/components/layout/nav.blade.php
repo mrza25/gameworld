@@ -12,13 +12,25 @@
                 Game World
             </a>
 
-            <a href="#" class="text-foreground hover:text-primary">
+            <a href="{{ route('games.index') }}" class="text-foreground hover:text-primary">
                 Games
             </a>
 
-            <a href="#" class="text-foreground hover:text-primary">
+            <a href="{{ route('games.create') }}" class="btn btn-primary">
                 Create Game
             </a>
+
+            @auth
+                <a href="{{ route('consoles.index') }}" class="text-foreground hover:text-primary">
+                    My Consoles
+                </a>
+
+                @if (auth()->user()->is_admin)
+                    <a href="{{ route('admin.consoles.index') }}" class="text-foreground hover:text-primary">
+                        Manage Consoles
+                    </a>
+                @endif
+            @endauth
 
         </div>
 
