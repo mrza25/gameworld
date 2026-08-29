@@ -12,6 +12,12 @@
             </p>
         </div>
 
+        @if (session('success'))
+            <div class="alert alert-success mb-6">
+                {{ session('success') }}
+            </div>
+        @endif
+
         @if ($consoles->count())
 
             <div class="overflow-x-auto">
@@ -67,7 +73,8 @@
 
                                 <td>
 
-                                    <a href="{{ route('admin.consoles.show', $console) }}" class="btn btn-sm btn-primary">
+                                    <a href="{{ route('admin.consoles.show', $console) }}"
+                                        class="btn btn-sm btn-primary">
                                         Manage
                                     </a>
 

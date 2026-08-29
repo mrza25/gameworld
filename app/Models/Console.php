@@ -3,13 +3,18 @@
 namespace App\Models;
 
 use App\ConsoleStatus;
+use App\Enums\ConsoleGameStatus;
+use App\Enums\ConsoleStatus as ConsoleStatusEnum;
+use App\Models\ConsoleGame;
+use App\Models\Game;
+use App\Models\Order;
+use App\Models\User;
 use Database\Factories\ConsoleFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use App\Enums\ConsoleGameStatus;
 
 class Console extends Model
 {

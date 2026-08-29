@@ -96,6 +96,7 @@
                     method="POST" class="flex gap-3 items-end">
 
                     @csrf
+
                     @method('PATCH')
 
                     <div class="flex-1">
@@ -167,8 +168,8 @@
                                         </p>
 
                                         <p class="text-sm mt-1">
-                                            Price:
-                                            {{ number_format($game->price) }}
+                                            Size:
+                                            {{ $game->size }} GB
                                         </p>
 
                                         @if ($game->pivot->installed_at)
@@ -190,19 +191,20 @@
                                         method="POST" class="flex gap-2">
 
                                         @csrf
+
                                         @method('PATCH')
 
                                         <select name="status" class="select select-bordered select-sm">
 
-                                            <option value="pending" @selected($game->pivot->status->value === 'pending')>
+                                            <option value="pending" @selected($game->pivot->status === 'pending')>
                                                 Pending
                                             </option>
 
-                                            <option value="installing" @selected($game->pivot->status->value === 'installing')>
+                                            <option value="installing" @selected($game->pivot->status === 'installing')>
                                                 Installing
                                             </option>
 
-                                            <option value="installed" @selected($game->pivot->status->value === 'installed')>
+                                            <option value="installed" @selected($game->pivot->status === 'installed')>
                                                 Installed
                                             </option>
 

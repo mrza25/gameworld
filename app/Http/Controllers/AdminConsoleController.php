@@ -55,38 +55,61 @@ class AdminConsoleController extends Controller
             'Console status updated successfully.'
         );
     }
+public function updateGameStatus(
+    Request $request,
+    Console $console,
+    Game $game
+) {
+    $validated = $request->validate([
+        'status' => 'required|in:pending,installing,installed',
+    ]);
 
-    public function updateGameStatus(
-        Request $request,
-        Console $console,
-        Game $game
-    ) {
-        $validated = $request->validate([
-            'status' => 'required|in:pending,installing,installed',
+    if (! $console->games()->whereKey($game->id)->exists()) {
+        abort(404);
+    }
+
+    $data = [
+        'status' => $validated['status'],
+    ];
+
+    if ($validated['status'] === 'installed') {
+        $data['installed_at'] = now();
+    } else {
+        $data['installed_at'] = null;
+    }
+
+    $console->games()->updateExistingPivot(
+        $game->id,
+        $data
+    );
+
+    $console->load('games');
+
+    $allGamesInstalled =
+        $console->games->isNotEmpty()
+        &&
+        $console->games->every(
+            fn ($game) =>
+                $game->pivot->status === 'installed'
+        );
+
+    if ($allGamesInstalled) {
+
+        $console->update([
+            'status' => 'delivered',
         ]);
 
-        if (! $console->games()->whereKey($game->id)->exists()) {
-            abort(404);
-        }
+    } else {
 
-        $data = [
-            'status' => $validated['status'],
-        ];
+        $console->update([
+            'status' => 'installing',
+        ]);
 
-        if ($validated['status'] === 'installed') {
-            $data['installed_at'] = now();
-        } else {
-            $data['installed_at'] = null;
-        }
-
-        $console->games()->updateExistingPivot(
-            $game->id,
-            $data
-        );
-
-        return back()->with(
-            'success',
-            'Game status updated successfully.'
-        );
     }
+
+    return back()->with(
+        'success',
+        'Game status updated successfully.'
+    );
+}
 }
