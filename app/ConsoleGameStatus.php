@@ -1,18 +1,10 @@
 <?php
 
-namespace App;
-
+namespace App\Enums;
 
 enum ConsoleGameStatus: string
 {
-    case PENDING = 'pending';
-    case DELIVERED = 'delivered';
-
-    public function label(): string
-    {
-        return match ($this) {
-            self::PENDING => 'Pending',
-            self::DELIVERED => 'Delivered',
-        };
-    }
+    case Pending = 'pending';
+    case Installing = 'installing';
+    case Installed = 'installed';
 }

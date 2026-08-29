@@ -2,7 +2,7 @@
 
     <div class="py-8">
 
-        <div class="flex items-center justify-between mb-6">
+        <div class="flex items-center justify-between mb-8">
 
             <div>
                 <h1 class="text-3xl font-bold">
@@ -10,7 +10,7 @@
                 </h1>
 
                 <p class="text-base-content/60">
-                    Manage your consoles
+                    Manage your registered consoles.
                 </p>
             </div>
 
@@ -20,43 +20,69 @@
 
         </div>
 
+
         @if (session('success'))
             <div class="alert alert-success mb-6">
                 {{ session('success') }}
             </div>
         @endif
 
+
         @if ($consoles->count())
 
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 
                 @foreach ($consoles as $console)
                     <div class="card bg-base-100 shadow-xl">
 
                         <div class="card-body">
 
-                            <h2 class="card-title">
-                                {{ $console->type }}
-                            </h2>
+                            <div class="flex justify-between">
 
-                            <p>
-                                Status:
-                                <span class="font-semibold">
+                                <h2 class="card-title">
+                                    {{ $console->type }}
+                                </h2>
+
+                                <div class="badge badge-info">
                                     {{ $console->status->value }}
-                                </span>
-                            </p>
-
-                            <div class="card-actions justify-end">
-
-                                <a href="{{ route('consoles.show', $console) }}" class="btn btn-sm btn-primary">
-                                    View
-                                </a>
-
-                                <a href="{{ route('consoles.edit', $console) }}" class="btn btn-sm btn-outline">
-                                    Edit
-                                </a>
+                                </div>
 
                             </div>
+
+
+                            <div class="divider"></div>
+
+
+                            <h3 class="font-semibold mb-2">
+                                Games
+                            </h3>
+
+
+                            @if ($console->games->count())
+                                <div class="space-y-3">
+
+                                    @foreach ($console->games as $game)
+                                        <div class="flex items-center justify-between">
+
+                                            <div>
+                                                {{ $game->title }}
+                                            </div>
+
+                                            <div class="badge badge-sm">
+
+                                                {{ $game->pivot->status->value }}
+
+                                            </div>
+
+                                        </div>
+                                    @endforeach
+
+                                </div>
+                            @else
+                                <p class="text-sm opacity-60">
+                                    No games selected.
+                                </p>
+                            @endif
 
                         </div>
 
@@ -68,15 +94,15 @@
             <div class="text-center py-16">
 
                 <h2 class="text-2xl font-bold">
-                    No consoles found
+                    No consoles yet
                 </h2>
 
                 <p class="text-base-content/60 mt-2">
-                    You don't have any consoles yet.
+                    Register your first console.
                 </p>
 
                 <a href="{{ route('consoles.create') }}" class="btn btn-primary mt-4">
-                    Add Your Console
+                    Add Console
                 </a>
 
             </div>

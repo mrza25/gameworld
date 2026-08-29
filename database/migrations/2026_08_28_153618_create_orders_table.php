@@ -11,17 +11,22 @@ return new class extends Migration
         Schema::create('orders', function (Blueprint $table) {
             $table->id();
 
-            $table->foreignId('user_id')
-                ->constrained()
-                ->cascadeOnDelete();
+    $table->foreignId('user_id')
+        ->constrained()
+        ->cascadeOnDelete();
 
-            $table->foreignId('console_id')
-                ->constrained()
-                ->cascadeOnDelete();
+    $table->foreignId('console_id')
+        ->nullable()
+        ->constrained()
+        ->nullOnDelete();
 
-            $table->string('status')->default('pending');
+    $table->decimal('total', 10, 2)->default(0);
 
-            $table->timestamps();
+    $table->string('status')->default('pending');
+
+    $table->string('payment_status')->default('unpaid');
+
+    $table->timestamps();
         });
     }
 

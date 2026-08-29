@@ -26,6 +26,7 @@ class GameController extends Controller
             'genre' => ['required', 'string', 'max:255'],
             'platform' => ['required', 'string', 'max:255'],
             'size' => ['required', 'numeric', 'min:0'],
+            'price' => ['required', 'numeric', 'min:0'],
         ]);
 
         Game::create($validated);
@@ -52,6 +53,7 @@ class GameController extends Controller
             'genre' => ['required', 'string', 'max:255'],
             'platform' => ['required', 'string', 'max:255'],
             'size' => ['required', 'numeric', 'min:0'],
+            'price' => ['required', 'numeric', 'min:0'],
         ]);
 
         $game->update($validated);

@@ -1,77 +1,79 @@
 <x-layout>
 
-    <div class="max-w-2xl mx-auto py-10">
+    <div class="py-8 max-w-3xl mx-auto">
 
-        <x-form.form title="Create Console" action="{{ route('consoles.store') }}" method="POST">
+        <h1 class="text-3xl font-bold mb-2">
+            Add Console
+        </h1>
+
+        <p class="text-base-content/60 mb-8">
+            Register your console and select the games you want.
+        </p>
+
+        @if ($errors->any())
+
+            <div class="alert alert-error mb-6">
+
+                <ul>
+                    @foreach ($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+
+            </div>
+
+        @endif
+
+        <form action="{{ route('consoles.store') }}" method="POST" class="space-y-6">
 
             @csrf
 
             <x-form.field name="type" label="Console Type" placeholder="PS5" required />
 
-            <div class="mt-6">
+            <div>
 
                 <label class="label">
-                    <span class="label-text font-semibold">
-                        Select Games
+
+                    <span class="label-text">
+                        Games
                     </span>
+
                 </label>
 
-                @if ($games->count())
+                <div class="grid md:grid-cols-2 gap-3">
 
-                    <div class="space-y-2 max-h-80 overflow-y-auto">
+                    @foreach ($games as $game)
+                        <label class="flex items-center gap-3 border rounded-lg p-4 cursor-pointer">
 
-                        @foreach ($games as $game)
-                            <label
-                                class="flex items-center gap-3 border border-base-300 rounded-lg p-3 cursor-pointer hover:bg-base-200">
+                            <input type="checkbox" name="games[]" value="{{ $game->id }}" class="checkbox"
+                                @checked(in_array($game->id, old('games', [])))>
 
-                                <input type="checkbox" name="games[]" value="{{ $game->id }}"
-                                    class="checkbox checkbox-primary" @checked(in_array($game->id, old('games', [])))>
+                            <div>
 
-                                <div>
-
-                                    <p class="font-semibold">
-                                        {{ $game->title }}
-                                    </p>
-
-                                    <p class="text-sm text-base-content/60">
-                                        {{ $game->platform }}
-                                        ·
-                                        {{ $game->size }} GB
-                                        ·
-                                        {{ $game->genre }}
-                                    </p>
-
+                                <div class="font-semibold">
+                                    {{ $game->title }}
                                 </div>
 
-                            </label>
-                        @endforeach
+                                <div class="text-sm opacity-60">
+                                    {{ $game->platform }}
+                                    -
+                                    {{ number_format($game->price) }}
+                                </div>
 
-                    </div>
-                @else
-                    <div class="alert alert-warning">
+                            </div>
 
-                        <div>
-                            <h3 class="font-bold">
-                                No games available
-                            </h3>
+                        </label>
+                    @endforeach
 
-                            <p>
-                                There are no games in the catalog yet.
-                            </p>
-                        </div>
-
-                    </div>
-
-                @endif
+                </div>
 
             </div>
 
-
-            <button type="submit" class="btn btn-primary w-full mt-6">
-                Create Console
+            <button type="submit" class="btn btn-primary w-full">
+                Add Console
             </button>
 
-        </x-form.form>
+        </form>
 
     </div>
 

@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Enums\ConsoleGameStatus;
 
 class Console extends Model
 {
@@ -16,6 +17,7 @@ class Console extends Model
     use HasFactory;
     protected $casts = [
         'status'=> ConsoleStatus::class,
+        'games.status' => ConsoleGameStatus::class,
     ];
 
        public function user(): BelongsTo
@@ -23,12 +25,13 @@ class Console extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function games(): BelongsToMany
-    {
-        return $this->belongsToMany(Game::class)
-            ->withPivot('status', 'installed_at')
-            ->withTimestamps();
-    }
+   public function games(): BelongsToMany
+{
+    return $this->belongsToMany(Game::class)
+        ->using(ConsoleGame::class)
+        ->withPivot('status', 'installed_at')
+        ->withTimestamps();
+}
 
     protected $fillable = [
     'user_id',

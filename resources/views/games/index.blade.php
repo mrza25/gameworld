@@ -53,6 +53,11 @@
                                     {{ $game->size }} GB
                                 </p>
 
+                                <p>
+                                    <strong>Price:</strong>
+                                    {{ number_format($game->price) }}
+                                </p>
+
                             </div>
 
                             <div class="card-actions justify-end mt-4">

@@ -12,6 +12,8 @@
 
         <x-form.field name="size" label="Size (GB)" type="number" placeholder="50.5" step="0.01" min="0"
             required />
+        <x-form.field name="price" label="Price" type="number" placeholder="500000" step="0.01" min="0"
+            required />
 
         <button type="submit" class="btn btn-primary w-full">
             Create Game

@@ -2,19 +2,24 @@
 
 namespace App\Models;
 
-use App\ConsoleGameStatus;
-use Illuminate\Database\Eloquent\Model;
+use App\Enums\ConsoleGameStatus;
+use Illuminate\Database\Eloquent\Relations\Pivot;
 
-class ConsoleGame extends Model
+class ConsoleGame extends Pivot
 {
-    protected $casts = [
+    protected $table = 'console_game';
 
-      'status'=>ConsoleGameStatus::class,
+    public $incrementing = true;
 
+    protected $fillable = [
+        'console_id',
+        'game_id',
+        'status',
+        'installed_at',
     ];
 
-    public function user()
-    {
-        return $this->belongsTo(User::class);
-    }
+    protected $casts = [
+        'status' => ConsoleGameStatus::class,
+        'installed_at' => 'datetime',
+    ];
 }

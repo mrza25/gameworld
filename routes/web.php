@@ -11,7 +11,7 @@ use App\Http\Controllers\ConsoleGameController;
 use App\Http\Controllers\ConsoleStatusController;
 use App\Http\Controllers\AdminConsoleController;
 use App\Http\Middleware\AdminMiddleware;
-
+use App\Http\Controllers\OrderController;
 /*
 |--------------------------------------------------------------------------
 | auth
@@ -32,11 +32,11 @@ Route::get('/order', function () {
 
 
 
-/*
-|--------------------------------------------------------------------------
-| Games
-|--------------------------------------------------------------------------
-*/
+    /*
+    |--------------------------------------------------------------------------
+    | Games
+    |--------------------------------------------------------------------------
+    */
 
 Route::get('/games', [GameController::class, 'index'])
     ->name('games.index');
@@ -69,25 +69,18 @@ Route::delete('/games/{game}', [GameController::class, 'destroy'])
 
     Route::middleware('auth')->group(function () {
 
-    Route::resource('consoles', ConsoleController::class);
+    Route::get('/consoles', [ConsoleController::class, 'index'])
+        ->name('consoles.index');
 
-    Route::post(
-        '/consoles/{console}/games',
-        [ConsoleGameController::class, 'store']
-    )->name('consoles.games.store');
+    Route::get('/consoles/create', [ConsoleController::class, 'create'])
+        ->name('consoles.create');
 
-    Route::delete(
-        '/consoles/{console}/games/{game}',
-        [ConsoleGameController::class, 'destroy']
-    )->name('consoles.games.destroy');
+    Route::post('/consoles', [ConsoleController::class, 'store'])
+        ->name('consoles.store');
 
-    Route::patch(
-        '/consoles/{console}/status',
-        [ConsoleStatusController::class, 'update']
-    )->name('consoles.status.update');
 });
 
-// /*
+    // /*
     // |--------------------------------------------------------------------------
     // | admin
     // |--------------------------------------------------------------------------
@@ -107,4 +100,34 @@ Route::middleware(['auth', AdminMiddleware::class])
             'show'
         ])->name('consoles.show');
 
+        Route::patch('/consoles/{console}/status', [
+            AdminConsoleController::class,
+            'updateStatus'
+        ])->name('consoles.status.update');
+
+        Route::patch('/consoles/{console}/games/{game}/status', [
+            AdminConsoleController::class,
+            'updateGameStatus'
+        ])->name('consoles.games.status.update');
+
+    });
+
+    // /*
+    // |--------------------------------------------------------------------------
+    // | orders
+    // |--------------------------------------------------------------------------
+    // */
+Route::middleware('auth')->group(function () {
+
+    Route::get('/orders', [OrderController::class, 'index'])
+        ->name('orders.index');
+
+    Route::get('/orders/create', [OrderController::class, 'create'])
+        ->name('orders.create');
+
+    Route::post('/orders', [OrderController::class, 'store'])
+        ->name('orders.store');
+
+    Route::get('/orders/{order}', [OrderController::class, 'show'])
+        ->name('orders.show');
 });

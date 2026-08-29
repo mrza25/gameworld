@@ -1,18 +1,18 @@
 <?php
 
-namespace App;
+namespace App\Enums;
 
-enum OrderStatus:string
+enum OrderStatus: string
 {
     case Pending = 'pending';
 
-    case Received = 'received';
+    case Confirmed = 'confirmed';
 
-    case Installing = 'installing';
+    case Processing = 'processing';
 
     case Ready = 'ready';
 
-    case Delivered = 'delivered';
+    case Completed = 'completed';
 
     case Cancelled = 'cancelled';
 }
