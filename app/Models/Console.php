@@ -22,7 +22,7 @@ class Console extends Model
     use HasFactory;
     protected $casts = [
         'status'=> ConsoleStatus::class,
-        'games.status' => ConsoleGameStatus::class,
+        // 'games.status' => ConsoleGameStatus::class,
     ];
 
        public function user(): BelongsTo

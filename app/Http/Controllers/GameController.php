@@ -29,8 +29,13 @@ class GameController extends Controller
             'price' => ['required', 'numeric', 'min:0'],
         ]);
 
-        Game::create($validated);
-
+        Game::create([
+    'title' => $validated['title'],
+    'genre' => $validated['genre'],
+    'platform' => $validated['platform'],
+    'size' => $validated['size'],
+    'price' => $validated['price'],
+]);
         return redirect()
             ->route('games.index')
             ->with('success', 'Game created successfully.');
@@ -49,12 +54,12 @@ class GameController extends Controller
     public function update(Request $request, Game $game)
     {
         $validated = $request->validate([
-            'title' => ['required', 'string', 'max:255'],
-            'genre' => ['required', 'string', 'max:255'],
-            'platform' => ['required', 'string', 'max:255'],
-            'size' => ['required', 'numeric', 'min:0'],
-            'price' => ['required', 'numeric', 'min:0'],
-        ]);
+    'title' => 'required|string|max:255',
+    'genre' => 'required|string|max:255',
+    'platform' => 'required|string|max:255',
+    'size' => 'required|numeric|min:0',
+    'price' => 'required|numeric|min:0',
+]);
 
         $game->update($validated);
 

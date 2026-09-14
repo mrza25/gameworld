@@ -14,12 +14,7 @@ class Game extends Model
 
     public function consoles(): BelongsToMany
     {
-        return $this->belongsToMany(
-            Console::class,
-            'console_game',
-            'game_id',
-            'console_id'
-        )
+        return $this->belongsToMany(Console::class, 'console_game', 'game_id', 'console_id')
             ->using(ConsoleGame::class)
             ->withPivot('status', 'installed_at')
             ->withTimestamps();
@@ -42,4 +37,6 @@ class Game extends Model
         'price' => 'decimal:2',
         'size' => 'decimal:2',
     ];
+
+
 }

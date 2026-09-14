@@ -70,7 +70,7 @@
 
                                             <div class="badge badge-sm">
 
-                                                {{ $game->pivot->status->value }}
+                                                {{ $game->pivot->status }}
 
                                             </div>
 

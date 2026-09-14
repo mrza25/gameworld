@@ -37,10 +37,10 @@ class OrderController extends Controller
    public function store(Request $request)
 {
     $validated = $request->validate([
-        'console_id' => 'required|exists:consoles,id',
-        'games' => 'required|array|min:1',
-        'games.*' => 'integer|exists:games,id',
-    ]);
+    'console_id' => 'required|exists:consoles,id',
+    'games' => 'required|array|min:1',
+    'games.*' => 'integer|exists:games,id|distinct',
+]);
 
     $console = Auth::user()
         ->consoles()

@@ -1,24 +1,64 @@
+```blade
 <x-layout>
 
-    <x-form.form title="Create Game" action="{{ route('games.store') }}" method="POST">
+    <div class="py-8 max-w-2xl mx-auto">
 
-        @csrf
+        <div class="mb-8">
+            <h1 class="text-3xl font-bold">
+                Create Game
+            </h1>
 
-        <x-form.field name="title" label="Game Title" placeholder="Enter game title" required />
+            <p class="text-base-content/60 mt-2">
+                Add a new game to the game catalog.
+            </p>
+        </div>
 
-        <x-form.field name="genre" label="Genre" placeholder="Action, RPG, Adventure..." required />
+        @if ($errors->any())
+            <div class="alert alert-error mb-6">
+                <ul class="list-disc list-inside">
+                    @foreach ($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
 
-        <x-form.field name="platform" label="Platform" placeholder="PC, PS5, Xbox..." required />
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
 
-        <x-form.field name="size" label="Size (GB)" type="number" placeholder="50.5" step="0.01" min="0"
-            required />
-        <x-form.field name="price" label="Price" type="number" placeholder="500000" step="0.01" min="0"
-            required />
+                <form action="{{ route('games.store') }}" method="POST" class="space-y-6">
+                    @csrf
 
-        <button type="submit" class="btn btn-primary w-full">
-            Create Game
-        </button>
+                    <x-form.field name="title" label="Title" placeholder="Game title" required />
 
-    </x-form.form>
+                    <x-form.field name="genre" label="Genre" placeholder="Action, RPG, Adventure..." required />
+
+                    <x-form.field name="platform" label="Platform" placeholder="PS5, PS4, Xbox..." required />
+
+                    <x-form.field name="size" label="Size (GB)" type="number" placeholder="Game size" step="0.01"
+                        min="0" required />
+
+                    <x-form.field name="price" label="Price" type="number" placeholder="Game price" step="0.01"
+                        min="0" required />
+
+                    <div class="flex justify-end gap-3">
+
+                        <a href="{{ route('games.index') }}" class="btn btn-outline">
+                            Cancel
+                        </a>
+
+                        <button type="submit" class="btn btn-primary">
+                            Create Game
+                        </button>
+
+                    </div>
+
+                </form>
+
+            </div>
+        </div>
+
+    </div>
 
 </x-layout>
+```
