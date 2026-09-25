@@ -10,11 +10,12 @@
                     My Orders
                 </h1>
 
-                <p class="text-base-content/60">
-                    View your orders
+                <p class="text-base-content/60 mt-1">
+                    View and track your orders.
                 </p>
 
             </div>
+
 
             <a href="{{ route('orders.create') }}" class="btn btn-primary">
                 New Order
@@ -23,16 +24,32 @@
         </div>
 
 
-        @if ($orders->count())
+        {{-- Success Message --}}
 
-            <div class="space-y-4">
+        @if (session('success'))
+            <div class="alert alert-success mb-6">
+
+                {{ session('success') }}
+
+            </div>
+        @endif
+
+
+        {{-- Orders --}}
+
+        @if ($orders->isNotEmpty())
+
+            <div class="space-y-5">
 
                 @foreach ($orders as $order)
                     <div class="card bg-base-100 shadow-xl">
 
                         <div class="card-body">
 
-                            <div class="flex justify-between">
+
+                            {{-- Header --}}
+
+                            <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
 
                                 <div>
 
@@ -40,21 +57,78 @@
                                         Order #{{ $order->id }}
                                     </h2>
 
-                                    <p>
-                                        Console:
-                                        {{ $order->console?->type ?? 'N/A' }}
+                                    <p class="text-sm text-base-content/60 mt-1">
+
+                                        {{ $order->created_at->format('Y-m-d H:i') }}
+
                                     </p>
 
                                 </div>
 
 
-                                <div class="text-right">
+                                <div class="flex flex-col sm:items-end gap-2">
 
-                                    <div class="badge badge-warning">
-                                        {{ $order->status->value }}
-                                    </div>
+                                    @php
+                                        $statusClass = match ($order->status->value) {
+                                            'pending' => 'badge-warning',
+                                            'confirmed' => 'badge-info',
+                                            'processing' => 'badge-info',
+                                            'ready' => 'badge-success',
+                                            'completed' => 'badge-success',
+                                            'cancelled' => 'badge-error',
+                                            default => 'badge-neutral',
+                                        };
+                                    @endphp
 
-                                    <p class="mt-2 font-bold">
+                                    <span class="badge {{ $statusClass }}">
+
+                                        {{ ucfirst($order->status->value) }}
+
+                                    </span>
+
+                                    <span class="text-sm text-base-content/60">
+
+                                        Payment:
+                                        <span class="font-medium text-base-content">
+
+                                            {{ ucfirst($order->payment_status->value) }}
+
+                                        </span>
+
+                                    </span>
+
+                                </div>
+
+                            </div>
+
+
+                            <div class="divider"></div>
+
+
+                            {{-- Order Info --}}
+
+                            <div class="grid sm:grid-cols-2 gap-4">
+
+                                <div>
+
+                                    <p class="text-sm text-base-content/60">
+                                        Console
+                                    </p>
+
+                                    <p class="font-semibold mt-1">
+                                        {{ $order->console_type }}
+                                    </p>
+
+                                </div>
+
+
+                                <div>
+
+                                    <p class="text-sm text-base-content/60">
+                                        Total
+                                    </p>
+
+                                    <p class="font-semibold mt-1">
                                         {{ $order->total }}
                                     </p>
 
@@ -63,7 +137,32 @@
                             </div>
 
 
-                            <div class="card-actions justify-end">
+                            {{-- Games --}}
+
+                            <div class="mt-5">
+
+                                <p class="text-sm font-semibold mb-2">
+                                    Games
+                                </p>
+
+                                <div class="flex flex-wrap gap-2">
+
+                                    @foreach ($order->items as $item)
+                                        <span class="badge badge-outline">
+
+                                            {{ $item->game->title }}
+
+                                        </span>
+                                    @endforeach
+
+                                </div>
+
+                            </div>
+
+
+                            {{-- Actions --}}
+
+                            <div class="card-actions justify-end mt-5">
 
                                 <a href="{{ route('orders.show', $order) }}" class="btn btn-sm btn-primary">
                                     View Order
@@ -78,15 +177,29 @@
 
             </div>
         @else
-            <div class="text-center py-16">
+            {{-- Empty State --}}
 
-                <h2 class="text-2xl font-bold">
-                    No orders yet
-                </h2>
+            <div class="card bg-base-100 shadow-xl">
 
-                <a href="{{ route('orders.create') }}" class="btn btn-primary mt-4">
-                    Create Your First Order
-                </a>
+                <div class="card-body text-center py-16">
+
+                    <h2 class="text-2xl font-bold">
+                        No Orders Yet
+                    </h2>
+
+                    <p class="text-base-content/60 mt-2">
+                        You haven't created any orders yet.
+                    </p>
+
+                    <div class="mt-5">
+
+                        <a href="{{ route('orders.create') }}" class="btn btn-primary">
+                            Create Your First Order
+                        </a>
+
+                    </div>
+
+                </div>
 
             </div>
 

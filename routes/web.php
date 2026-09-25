@@ -1,133 +1,207 @@
 <?php
 
-declare(strict_types=1);
-
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\RegisteredUser;
-use App\Http\Controllers\LoginController;
-use App\Http\Controllers\GameController;
+use App\Http\Controllers\Admin\AdminOrderController;
 use App\Http\Controllers\ConsoleController;
-use App\Http\Controllers\ConsoleGameController;
-use App\Http\Controllers\ConsoleStatusController;
-use App\Http\Controllers\AdminConsoleController;
-use App\Http\Middleware\AdminMiddleware;
 use App\Http\Controllers\OrderController;
+use App\Http\Middleware\AdminMiddleware;
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\GameController;
+
 /*
 |--------------------------------------------------------------------------
-| auth
+| Public Routes
 |--------------------------------------------------------------------------
 */
-Route::get('/', fn () => view('welcome'));
-Route::get('/register', [RegisteredUser::class, 'create'])->name('register')->middleware('guest');
-Route::post('/register', [RegisteredUser::class, 'store'])->name('register.store')->middleware('guest');
 
-Route::get('/login', [LoginController::class, 'create'])->name('login')->middleware('guest');
-Route::post('/login', [LoginController::class, 'store'])->middleware('guest');
+Route::get('/', function () {
+    return view('welcome');
+})->name('home');
 
-Route::post('/logout', [LoginController::class, 'destroy'])->name('logout')->middleware('auth');
+/*
+|--------------------------------------------------------------------------
+| Authentication
+|--------------------------------------------------------------------------
+*/
 
-Route::get('/order', function () {
-    return view('order');
-})->name('order')->middleware('auth');
+Route::middleware('guest')->group(function () {
 
+    Route::get('/login', [
+        AuthController::class,
+        'showLogin'
+    ])->name('login');
 
+    Route::post('/login', [
+        AuthController::class,
+        'login'
+    ])->name('login.store');
+
+    Route::get('/register', [
+        AuthController::class,
+        'showRegister'
+    ])->name('register');
+
+    Route::post('/register', [
+        AuthController::class,
+        'register'
+    ])->name('register.store');
+});
+
+Route::post('/logout', [
+    AuthController::class,
+    'logout'
+])
+    ->middleware('auth')
+    ->name('logout');
+
+/*
+|--------------------------------------------------------------------------
+| Games
+|--------------------------------------------------------------------------
+|
+| Games catalog is public.
+| Only admins can create/edit games.
+|
+*/
+
+Route::get('/games', [
+    GameController::class,
+    'index'
+])->name('games.index');
+
+Route::get('/games/{game}', [
+    GameController::class,
+    'show'
+])->name('games.show');
+
+/*
+|--------------------------------------------------------------------------
+| Customer Routes
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware('auth')->group(function () {
 
     /*
     |--------------------------------------------------------------------------
-    | Games
+    | Consoles - Temporary
+    |--------------------------------------------------------------------------
+    |
+    | These routes are kept for now because the old Console views
+    | still exist. Later we will remove the old Console architecture.
+    |
+    */
+
+    Route::get('/consoles', [
+        ConsoleController::class,
+        'index'
+    ])->name('consoles.index');
+
+    Route::get('/consoles/create', [
+        ConsoleController::class,
+        'create'
+    ])->name('consoles.create');
+
+    Route::post('/consoles', [
+        ConsoleController::class,
+        'store'
+    ])->name('consoles.store');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Orders
     |--------------------------------------------------------------------------
     */
 
-Route::get('/games', [GameController::class, 'index'])
-    ->name('games.index');
+    Route::get('/orders', [
+        OrderController::class,
+        'index'
+    ])->name('orders.index');
 
-Route::get('/games/create', [GameController::class, 'create'])
-    ->name('games.create')
-    ->middleware(['auth', AdminMiddleware::class]);
+    Route::get('/orders/create', [
+        OrderController::class,
+        'create'
+    ])->name('orders.create');
 
-Route::post('/games', [GameController::class, 'store'])
-    ->name('games.store')->middleware('auth');
+    Route::post('/orders', [
+        OrderController::class,
+        'store'
+    ])->name('orders.store');
 
-Route::get('/games/{game}', [GameController::class, 'show'])
-    ->name('games.show');
-
-Route::get('/games/{game}/edit', [GameController::class, 'edit'])
-    ->name('games.edit')->middleware('auth');
-
-Route::patch('/games/{game}', [GameController::class, 'update'])
-    ->name('games.update');
-
-Route::delete('/games/{game}', [GameController::class, 'destroy'])
-    ->name('games.destroy');
-
-
-    // /*
-    // |--------------------------------------------------------------------------
-    // | Consoles
-    // |--------------------------------------------------------------------------
-    // */
-
-    Route::middleware('auth')->group(function () {
-
-    Route::get('/consoles', [ConsoleController::class, 'index'])
-        ->name('consoles.index');
-
-    Route::get('/consoles/create', [ConsoleController::class, 'create'])
-        ->name('consoles.create');
-
-    Route::post('/consoles', [ConsoleController::class, 'store'])
-        ->name('consoles.store');
-
+    Route::get('/orders/{order}', [
+        OrderController::class,
+        'show'
+    ])->name('orders.show');
 });
 
-    // /*
-    // |--------------------------------------------------------------------------
-    // | admin
-    // |--------------------------------------------------------------------------
-    // */
-Route::middleware(['auth', AdminMiddleware::class])
+/*
+|--------------------------------------------------------------------------
+| Admin Routes
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth',
+    AdminMiddleware::class,
+])
     ->prefix('admin')
     ->name('admin.')
     ->group(function () {
 
-        Route::get('/consoles', [
-            AdminConsoleController::class,
+        /*
+        |--------------------------------------------------------------------------
+        | Game Management
+        |--------------------------------------------------------------------------
+        */
+
+        Route::get('/games/create', [
+            GameController::class,
+            'create'
+        ])->name('games.create');
+
+        Route::post('/games', [
+            GameController::class,
+            'store'
+        ])->name('games.store');
+
+        Route::get('/games/{game}/edit', [
+            GameController::class,
+            'edit'
+        ])->name('games.edit');
+
+        Route::patch('/games/{game}', [
+            GameController::class,
+            'update'
+        ])->name('games.update');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Order Management
+        |--------------------------------------------------------------------------
+        */
+
+        Route::get('/orders', [
+            AdminOrderController::class,
             'index'
-        ])->name('consoles.index');
+        ])->name('orders.index');
 
-        Route::get('/consoles/{console}', [
-            AdminConsoleController::class,
+        Route::get('/orders/{order}', [
+            AdminOrderController::class,
             'show'
-        ])->name('consoles.show');
+        ])->name('orders.show');
 
-        Route::patch('/consoles/{console}/status', [
-            AdminConsoleController::class,
+        Route::patch('/orders/{order}/status', [
+            AdminOrderController::class,
             'updateStatus'
-        ])->name('consoles.status.update');
+        ])->name('orders.status.update');
 
-        Route::patch('/consoles/{console}/games/{game}/status', [
-            AdminConsoleController::class,
-            'updateGameStatus'
-        ])->name('consoles.games.status.update');
+        Route::patch('/orders/{order}/payment-status', [
+            AdminOrderController::class,
+            'updatePaymentStatus'
+        ])->name('orders.payment-status.update');
 
+        Route::patch('/orders/{order}/items/installation-status', [
+            AdminOrderController::class,
+            'updateItemInstallationStatus'
+        ])->name('orders.items.installation-status.update');
     });
-
-    // /*
-    // |--------------------------------------------------------------------------
-    // | orders
-    // |--------------------------------------------------------------------------
-    // */
-Route::middleware('auth')->group(function () {
-
-    Route::get('/orders', [OrderController::class, 'index'])
-        ->name('orders.index');
-
-    Route::get('/orders/create', [OrderController::class, 'create'])
-        ->name('orders.create');
-
-    Route::post('/orders', [OrderController::class, 'store'])
-        ->name('orders.store');
-
-    Route::get('/orders/{order}', [OrderController::class, 'show'])
-        ->name('orders.show');
-});

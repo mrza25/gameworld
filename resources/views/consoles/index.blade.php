@@ -5,84 +5,92 @@
         <div class="flex items-center justify-between mb-8">
 
             <div>
+
                 <h1 class="text-3xl font-bold">
                     My Consoles
                 </h1>
 
-                <p class="text-base-content/60">
-                    Manage your registered consoles.
+                <p class="text-base-content/60 mt-1">
+                    Your registered consoles.
                 </p>
-            </div>
 
-            <a href="{{ route('consoles.create') }}" class="btn btn-primary">
-                Add Console
-            </a>
+            </div>
 
         </div>
 
 
-        @if (session('success'))
-            <div class="alert alert-success mb-6">
-                {{ session('success') }}
-            </div>
-        @endif
+        @if ($consoles->isNotEmpty())
 
-
-        @if ($consoles->count())
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
 
                 @foreach ($consoles as $console)
                     <div class="card bg-base-100 shadow-xl">
 
                         <div class="card-body">
 
-                            <div class="flex justify-between">
+                            <div class="flex items-start justify-between gap-4">
 
                                 <h2 class="card-title">
                                     {{ $console->type }}
                                 </h2>
 
-                                <div class="badge badge-info">
-                                    {{ $console->status->value }}
-                                </div>
+                                @php
+                                    $statusClass = match ($console->status->value) {
+                                        'pending' => 'badge-warning',
+                                        'processing' => 'badge-info',
+                                        'ready' => 'badge-success',
+                                        'delivered' => 'badge-success',
+                                        default => 'badge-neutral',
+                                    };
+                                @endphp
+
+                                <span class="badge {{ $statusClass }}">
+                                    {{ ucfirst($console->status->value) }}
+                                </span>
 
                             </div>
 
 
-                            <div class="divider"></div>
+                            <p class="text-sm text-base-content/60 mt-2">
+
+                                Added
+                                {{ $console->created_at->format('Y-m-d H:i') }}
+
+                            </p>
 
 
-                            <h3 class="font-semibold mb-2">
-                                Games
-                            </h3>
+                            @if ($console->games->isNotEmpty())
+                                <div class="mt-5">
 
+                                    <p class="text-sm font-semibold mb-2">
+                                        Games
+                                    </p>
 
-                            @if ($console->games->count())
-                                <div class="space-y-3">
+                                    <div class="flex flex-wrap gap-2">
 
-                                    @foreach ($console->games as $game)
-                                        <div class="flex items-center justify-between">
-
-                                            <div>
+                                        @foreach ($console->games as $game)
+                                            <span class="badge badge-outline">
                                                 {{ $game->title }}
-                                            </div>
+                                            </span>
+                                        @endforeach
 
-                                            <div class="badge badge-sm">
-
-                                                {{ $game->pivot->status }}
-
-                                            </div>
-
-                                        </div>
-                                    @endforeach
+                                    </div>
 
                                 </div>
                             @else
-                                <p class="text-sm opacity-60">
-                                    No games selected.
+                                <p class="text-sm text-base-content/60 mt-5">
+                                    No games added.
                                 </p>
                             @endif
+
+
+                            <div class="card-actions justify-end mt-5">
+
+                                <a href="{{ route('consoles.show', $console) }}" class="btn btn-sm btn-primary">
+                                    View
+                                </a>
+
+                            </div>
 
                         </div>
 
@@ -91,19 +99,23 @@
 
             </div>
         @else
-            <div class="text-center py-16">
+            <div class="card bg-base-100 shadow-xl">
 
-                <h2 class="text-2xl font-bold">
-                    No consoles yet
-                </h2>
+                <div class="card-body text-center py-16">
 
-                <p class="text-base-content/60 mt-2">
-                    Register your first console.
-                </p>
+                    <h2 class="text-2xl font-bold">
+                        No Consoles
+                    </h2>
 
-                <a href="{{ route('consoles.create') }}" class="btn btn-primary mt-4">
-                    Add Console
-                </a>
+                    <p class="text-base-content/60 mt-2">
+                        You don't have any registered consoles.
+                    </p>
+
+                    <a href="{{ route('orders.create') }}" class="btn btn-primary mt-5">
+                        Create an Order
+                    </a>
+
+                </div>
 
             </div>
 

@@ -1,49 +1,153 @@
-```blade
 <x-layout>
 
     <div class="py-8 max-w-2xl mx-auto">
 
         <div class="mb-8">
-            <h1 class="text-3xl font-bold">
+
+            <a href="{{ route('games.index') }}" class="text-sm text-base-content/60 hover:text-primary">
+                ← Back to Games
+            </a>
+
+            <h1 class="text-3xl font-bold mt-4">
                 Create Game
             </h1>
 
             <p class="text-base-content/60 mt-2">
-                Add a new game to the game catalog.
+                Add a new game to the catalog.
             </p>
+
         </div>
 
+
         @if ($errors->any())
+
             <div class="alert alert-error mb-6">
+
                 <ul class="list-disc list-inside">
+
                     @foreach ($errors->all() as $error)
                         <li>{{ $error }}</li>
                     @endforeach
+
                 </ul>
+
             </div>
+
         @endif
 
+
         <div class="card bg-base-100 shadow-xl">
+
             <div class="card-body">
 
-                <form action="{{ route('games.store') }}" method="POST" class="space-y-6">
+                <form action="{{ route('admin.games.store') }}" method="POST" class="space-y-5">
+
                     @csrf
 
-                    <x-form.field name="title" label="Title" placeholder="Game title" required />
 
-                    <x-form.field name="genre" label="Genre" placeholder="Action, RPG, Adventure..." required />
+                    <div>
 
-                    <x-form.field name="platform" label="Platform" placeholder="PS5, PS4, Xbox..." required />
+                        <label for="title" class="label">
+                            <span class="label-text">
+                                Title
+                            </span>
+                        </label>
 
-                    <x-form.field name="size" label="Size (GB)" type="number" placeholder="Game size" step="0.01"
-                        min="0" required />
+                        <input type="text" id="title" name="title" value="{{ old('title') }}"
+                            class="input input-bordered w-full" required>
 
-                    <x-form.field name="price" label="Price" type="number" placeholder="Game price" step="0.01"
-                        min="0" required />
+                        @error('title')
+                            <p class="text-error text-sm mt-1">
+                                {{ $message }}
+                            </p>
+                        @enderror
 
-                    <div class="flex justify-end gap-3">
+                    </div>
 
-                        <a href="{{ route('games.index') }}" class="btn btn-outline">
+
+                    <div>
+
+                        <label for="genre" class="label">
+                            <span class="label-text">
+                                Genre
+                            </span>
+                        </label>
+
+                        <input type="text" id="genre" name="genre" value="{{ old('genre') }}"
+                            class="input input-bordered w-full" required>
+
+                        @error('genre')
+                            <p class="text-error text-sm mt-1">
+                                {{ $message }}
+                            </p>
+                        @enderror
+
+                    </div>
+
+
+                    <div>
+
+                        <label for="platform" class="label">
+                            <span class="label-text">
+                                Platform
+                            </span>
+                        </label>
+
+                        <input type="text" id="platform" name="platform" value="{{ old('platform') }}"
+                            class="input input-bordered w-full" required>
+
+                        @error('platform')
+                            <p class="text-error text-sm mt-1">
+                                {{ $message }}
+                            </p>
+                        @enderror
+
+                    </div>
+
+
+                    <div>
+
+                        <label for="size" class="label">
+                            <span class="label-text">
+                                Size
+                            </span>
+                        </label>
+
+                        <input type="text" id="size" name="size" value="{{ old('size') }}"
+                            class="input input-bordered w-full" required>
+
+                        @error('size')
+                            <p class="text-error text-sm mt-1">
+                                {{ $message }}
+                            </p>
+                        @enderror
+
+                    </div>
+
+
+                    <div>
+
+                        <label for="price" class="label">
+                            <span class="label-text">
+                                Price
+                            </span>
+                        </label>
+
+                        <input type="number" id="price" name="price" value="{{ old('price') }}" min="0"
+                            step="0.01" class="input input-bordered w-full" required>
+
+                        @error('price')
+                            <p class="text-error text-sm mt-1">
+                                {{ $message }}
+                            </p>
+                        @enderror
+
+                    </div>
+
+
+                    <div class="flex justify-end gap-3 pt-4">
+
+                        <a href="{{ route('games.index') }}" class="btn btn-ghost">
                             Cancel
                         </a>
 
@@ -56,9 +160,9 @@
                 </form>
 
             </div>
+
         </div>
 
     </div>
 
 </x-layout>
-```

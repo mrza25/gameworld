@@ -3,8 +3,8 @@
 namespace App\Models;
 
 use App\ConsoleStatus;
-use App\Enums\ConsoleGameStatus;
-use App\Enums\ConsoleStatus as ConsoleStatusEnum;
+use App\ConsoleGameStatus;
+use App\ConsoleStatus as ConsoleStatusEnum;
 use App\Models\ConsoleGame;
 use App\Models\Game;
 use App\Models\Order;

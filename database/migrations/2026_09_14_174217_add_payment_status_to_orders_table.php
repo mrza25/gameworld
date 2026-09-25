@@ -11,15 +11,17 @@ return new class extends Migration
      */
     public function up(): void
 {
-    Schema::table('games', function (Blueprint $table) {
-        $table->decimal('price', 10, 2)->default(0)->after('size');
+    Schema::table('orders', function (Blueprint $table) {
+        $table->string('payment_status')
+            ->default('unpaid')
+            ->after('status');
     });
 }
 
 public function down(): void
 {
-    Schema::table('games', function (Blueprint $table) {
-        $table->dropColumn('price');
+    Schema::table('orders', function (Blueprint $table) {
+        $table->dropColumn('payment_status');
     });
 }
 };

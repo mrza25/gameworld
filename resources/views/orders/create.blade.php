@@ -2,150 +2,206 @@
 
     <div class="py-8 max-w-3xl mx-auto">
 
-        <h1 class="text-3xl font-bold mb-2">
-            Create Order
-        </h1>
+        <div class="mb-8">
 
-        <p class="text-base-content/60 mb-8">
-            Select your console and the games you want.
-        </p>
+            <a href="{{ route('orders.index') }}" class="text-sm text-base-content/60 hover:text-primary">
+                ← Back to Orders
+            </a>
+
+            <h1 class="text-3xl font-bold mt-4">
+                Create New Order
+            </h1>
+
+            <p class="text-base-content/60 mt-2">
+                Choose your console and the games you want installed.
+            </p>
+
+        </div>
+
+
+        {{-- Validation Errors --}}
 
         @if ($errors->any())
 
             <div class="alert alert-error mb-6">
 
-                <ul>
+                <ul class="list-disc list-inside">
+
                     @foreach ($errors->all() as $error)
-                        <li>{{ $error }}</li>
+                        <li>
+                            {{ $error }}
+                        </li>
                     @endforeach
+
                 </ul>
 
             </div>
 
         @endif
 
-        <form action="{{ route('orders.store') }}" method="POST" class="space-y-6">
 
-            @csrf
+        <div class="card bg-base-100 shadow-xl">
 
-            {{-- Console --}}
+            <div class="card-body">
 
-            <div>
+                <form action="{{ route('orders.store') }}" method="POST" class="space-y-6">
 
-                <label for="console_id" class="label">
-                    <span class="label-text">
-                        Select Console
-                    </span>
-                </label>
-
-                <select name="console_id" id="console_id" class="select select-bordered w-full" required>
-
-                    <option value="">
-                        Select your console
-                    </option>
-
-                    @foreach ($consoles as $console)
-                        <option value="{{ $console->id }}" @selected(old('console_id') == $console->id)>
-                            {{ $console->type }}
-                        </option>
-                    @endforeach
-
-                </select>
-
-            </div>
+                    @csrf
 
 
-            {{-- Games --}}
+                    {{-- Console Type --}}
 
-            <div>
+                    <div>
 
-                <label class="label">
+                        <label for="console_type" class="label">
+                            <span class="label-text font-semibold">
+                                Console
+                            </span>
+                        </label>
 
-                    <span class="label-text">
-                        Select Games
-                    </span>
+                        <select name="console_type" id="console_type" class="select select-bordered w-full" required>
 
-                </label>
+                            <option value="">
+                                Select your console
+                            </option>
+
+                            <option value="PS5" @selected(old('console_type') === 'PS5')>
+                                PlayStation 5
+                            </option>
+
+                            <option value="PS4" @selected(old('console_type') === 'PS4')>
+                                PlayStation 4
+                            </option>
+
+                            <option value="Xbox Series X" @selected(old('console_type') === 'Xbox Series X')>
+                                Xbox Series X
+                            </option>
+
+                            <option value="Xbox One" @selected(old('console_type') === 'Xbox One')>
+                                Xbox One
+                            </option>
+
+                        </select>
+
+                        @error('console_type')
+                            <p class="text-error text-sm mt-1">
+                                {{ $message }}
+                            </p>
+                        @enderror
+
+                    </div>
 
 
-                @foreach ($consoles as $console)
-                    <div class="console-games hidden" data-console="{{ $console->id }}">
+                    {{-- Games --}}
 
-                        <div class="grid md:grid-cols-2 gap-3">
+                    <div>
 
-                            @foreach ($console->games as $game)
-                                <label class="flex items-center gap-3 border rounded-lg p-4 cursor-pointer">
+                        <div class="mb-3">
 
-                                    <input type="checkbox" name="games[]" value="{{ $game->id }}" class="checkbox"
-                                        @checked(in_array($game->id, old('games', [])))>
+                            <h2 class="font-semibold">
+                                Select Games
+                            </h2>
 
-                                    <div>
-
-                                        <div class="font-semibold">
-                                            {{ $game->title }}
-                                        </div>
-
-                                        <div class="text-sm opacity-60">
-                                            {{ $game->platform }}
-                                        </div>
-
-                                    </div>
-
-                                </label>
-                            @endforeach
+                            <p class="text-sm text-base-content/60 mt-1">
+                                Select at least one game.
+                            </p>
 
                         </div>
 
+
+                        @if ($games->isEmpty())
+
+                            <div class="alert alert-warning">
+
+                                No games are currently available.
+
+                            </div>
+                        @else
+                            <div class="space-y-3">
+
+                                @foreach ($games as $game)
+                                    <label
+                                        class="flex items-center justify-between gap-4 p-4 border border-base-300 rounded-lg cursor-pointer hover:bg-base-200">
+
+                                        <div class="flex items-center gap-3">
+
+                                            <input type="checkbox" name="games[]" value="{{ $game->id }}"
+                                                class="checkbox checkbox-primary" @checked(in_array($game->id, old('games', [])))>
+
+                                            <div>
+
+                                                <div class="font-semibold">
+                                                    {{ $game->title }}
+                                                </div>
+
+                                                <div class="text-sm text-base-content/60">
+
+                                                    {{ $game->platform }}
+
+                                                    @if ($game->genre)
+                                                        · {{ $game->genre }}
+                                                    @endif
+
+                                                    @if ($game->size)
+                                                        · {{ $game->size }}
+                                                    @endif
+
+                                                </div>
+
+                                            </div>
+
+                                        </div>
+
+
+                                        <div class="font-semibold whitespace-nowrap">
+
+                                            {{ $game->price }}
+
+                                        </div>
+
+                                    </label>
+                                @endforeach
+
+                            </div>
+
+                        @endif
+
+
+                        @error('games')
+                            <p class="text-error text-sm mt-2">
+                                {{ $message }}
+                            </p>
+                        @enderror
+
+                        @error('games.*')
+                            <p class="text-error text-sm mt-2">
+                                {{ $message }}
+                            </p>
+                        @enderror
+
                     </div>
-                @endforeach
+
+
+                    {{-- Actions --}}
+
+                    <div class="flex justify-end gap-3 pt-4">
+
+                        <a href="{{ route('orders.index') }}" class="btn btn-ghost">
+                            Cancel
+                        </a>
+
+                        <button type="submit" class="btn btn-primary" @disabled($games->isEmpty())>
+                            Create Order
+                        </button>
+
+                    </div>
+
+                </form>
 
             </div>
 
-
-            <button type="submit" class="btn btn-primary w-full">
-                Create Order
-            </button>
-
-        </form>
+        </div>
 
     </div>
-
-
-    <script>
-        const consoleSelect =
-            document.getElementById('console_id');
-
-        const consoleGames =
-            document.querySelectorAll('.console-games');
-
-
-        function showGames() {
-
-            const selectedConsole =
-                consoleSelect.value;
-
-            consoleGames.forEach(section => {
-
-                section.classList.add('hidden');
-
-                if (
-                    section.dataset.console === selectedConsole
-                ) {
-                    section.classList.remove('hidden');
-                }
-
-            });
-
-        }
-
-
-        consoleSelect.addEventListener(
-            'change',
-            showGames
-        );
-
-
-        showGames();
-    </script>
 
 </x-layout>

@@ -1,60 +1,96 @@
 <x-layout>
 
-    <div class="py-8 max-w-2xl mx-auto">
+    <div class="py-8 max-w-3xl mx-auto">
 
-        @if (session('success'))
-            <div class="alert alert-success mb-6">
-                {{ session('success') }}
-            </div>
-        @endif
+        <div class="mb-8">
+
+            <a href="{{ route('games.index') }}" class="text-sm text-base-content/60 hover:text-primary">
+                ← Back to Games
+            </a>
+
+            <h1 class="text-3xl font-bold mt-4">
+                {{ $game->title }}
+            </h1>
+
+        </div>
+
 
         <div class="card bg-base-100 shadow-xl">
 
             <div class="card-body">
 
-                <h1 class="card-title text-3xl">
-                    {{ $game->title }}
-                </h1>
-
-                <div class="divider"></div>
-
                 <div class="space-y-4">
 
-                    <div>
-                        <span class="font-semibold">
-                            Genre:
+                    <div class="flex justify-between">
+                        <span class="text-base-content/60">
+                            Title
                         </span>
 
-                        {{ $game->genre }}
+                        <span class="font-semibold">
+                            {{ $game->title }}
+                        </span>
                     </div>
 
-                    <div>
-                        <span class="font-semibold">
-                            Platform:
+                    <div class="flex justify-between">
+                        <span class="text-base-content/60">
+                            Platform
                         </span>
 
-                        {{ $game->platform }}
+                        <span class="font-semibold">
+                            {{ $game->platform }}
+                        </span>
                     </div>
 
-                    <div>
-                        <span class="font-semibold">
-                            Size:
+                    <div class="flex justify-between">
+                        <span class="text-base-content/60">
+                            Genre
                         </span>
 
-                        {{ $game->size }} GB
+                        <span class="font-semibold">
+                            {{ $game->genre }}
+                        </span>
+                    </div>
+
+                    <div class="flex justify-between">
+                        <span class="text-base-content/60">
+                            Size
+                        </span>
+
+                        <span class="font-semibold">
+                            {{ $game->size }}
+                        </span>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="flex justify-between text-xl font-bold">
+                        <span>
+                            Price
+                        </span>
+
+                        <span>
+                            {{ $game->price }}
+                        </span>
                     </div>
 
                 </div>
 
+
                 <div class="card-actions justify-end mt-6">
 
-                    <a href="{{ route('games.index') }}" class="btn">
-                        Back
-                    </a>
+                    @auth
+                        <a href="{{ route('orders.create') }}" class="btn btn-primary">
+                            Order This Game
+                        </a>
+                    @endauth
 
-                    <a href="{{ route('games.edit', $game) }}" class="btn btn-primary">
-                        Edit
-                    </a>
+                    @auth
+                        @if (auth()->user()->is_admin)
+                            <a href="{{ route('admin.games.edit', $game) }}" class="btn btn-outline">
+                                Edit
+                            </a>
+                        @endif
+                    @endauth
 
                 </div>
 

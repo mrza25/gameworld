@@ -1,79 +1,49 @@
 <x-layout>
 
-    <div class="py-8 max-w-3xl mx-auto">
+    <div class="py-8 max-w-2xl mx-auto">
 
-        <h1 class="text-3xl font-bold mb-2">
-            Add Console
-        </h1>
+        <div class="mb-8">
 
-        <p class="text-base-content/60 mb-8">
-            Register your console and select the games you want.
-        </p>
+            <a href="{{ route('consoles.index') }}" class="text-sm text-base-content/60 hover:text-primary">
+                ← Back to Consoles
+            </a>
 
-        @if ($errors->any())
+            <h1 class="text-3xl font-bold mt-4">
+                Create an Order
+            </h1>
 
-            <div class="alert alert-error mb-6">
+            <p class="text-base-content/60 mt-2">
+                Consoles are now registered through orders.
+            </p>
 
-                <ul>
-                    @foreach ($errors->all() as $error)
-                        <li>{{ $error }}</li>
-                    @endforeach
-                </ul>
+        </div>
 
-            </div>
 
-        @endif
+        <div class="card bg-base-100 shadow-xl">
 
-        <form action="{{ route('consoles.store') }}" method="POST" class="space-y-6">
+            <div class="card-body text-center py-12">
 
-            @csrf
+                <h2 class="text-2xl font-bold">
+                    Create a New Order
+                </h2>
 
-            <x-form.field name="type" label="Console Type" placeholder="PS5" required />
+                <p class="text-base-content/60 mt-3 max-w-md mx-auto">
+                    Instead of creating a console separately, choose your
+                    console and games when creating an order.
+                </p>
 
-            <div>
 
-                <label class="label">
+                <div class="mt-6">
 
-                    <span class="label-text">
-                        Games
-                    </span>
-
-                </label>
-
-                <div class="grid md:grid-cols-2 gap-3">
-
-                    @foreach ($games as $game)
-                        <label class="flex items-center gap-3 border rounded-lg p-4 cursor-pointer">
-
-                            <input type="checkbox" name="games[]" value="{{ $game->id }}" class="checkbox"
-                                @checked(in_array($game->id, old('games', [])))>
-
-                            <div>
-
-                                <div class="font-semibold">
-                                    {{ $game->title }}
-                                </div>
-
-                                <div class="text-sm opacity-60">
-                                    {{ $game->platform }}
-                                    -
-                                    {{ number_format($game->price) }}
-                                </div>
-
-                            </div>
-
-                        </label>
-                    @endforeach
+                    <a href="{{ route('orders.create') }}" class="btn btn-primary">
+                        Create Order
+                    </a>
 
                 </div>
 
             </div>
 
-            <button type="submit" class="btn btn-primary w-full">
-                Add Console
-            </button>
-
-        </form>
+        </div>
 
     </div>
 

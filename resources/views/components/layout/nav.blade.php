@@ -1,64 +1,77 @@
-<nav class="border-b border-border px-6">
+<nav class="border-b border-base-300 bg-base-100">
 
-    <div class="max-w-7xl mx-auto h-16 flex items-center justify-between">
+    <div class="max-w-7xl mx-auto px-4">
 
-        <div class="flex items-center space-x-4">
+        <div class="navbar min-h-16">
 
-            <a href="/">
-                <img src="{{ asset('images/logosite.png') }}" alt="Logo" class="h-12 w-auto">
-            </a>
+            {{-- Logo --}}
 
-            <a href="/" class="text-lg font-semibold text-foreground">
-                Game World
-            </a>
+            <div class="flex-1">
 
-            <a href="{{ route('games.index') }}" class="text-foreground hover:text-primary">
-                Games
-            </a>
-
-            <a href="{{ route('games.create') }}" class="btn btn-primary">
-                Create Game
-            </a>
-
-            @auth
-                <a href="{{ route('consoles.index') }}" class="text-foreground hover:text-primary">
-                    My Consoles
+                <a href="{{ route('home') }}" class="text-xl font-bold">
+                    Game World
                 </a>
 
-                @if (auth()->user()->is_admin)
-                    <a href="{{ route('admin.consoles.index') }}" class="text-foreground hover:text-primary">
-                        Manage Consoles
+            </div>
+
+
+            {{-- Navigation --}}
+
+            <div class="flex-none">
+
+                <div class="flex items-center gap-5">
+
+
+                    <a href="{{ route('games.index') }}" class="hover:text-primary transition">
+                        Games
                     </a>
-                @endif
-            @endauth
 
-        </div>
 
-        <div class="flex items-center space-x-4">
+                    @auth
 
-            @auth
+                        <a href="{{ route('orders.index') }}" class="hover:text-primary transition">
+                            My Orders
+                        </a>
 
-                <span class="text-foreground">
-                    Hello, {{ Auth::user()->name }}
-                </span>
 
-                <form method="POST" action="/logout">
-                    @csrf
+                        @if (auth()->user()->is_admin)
+                            <div class="divider divider-horizontal mx-0"></div>
 
-                    <button type="submit" class="btn">
-                        Logout
-                    </button>
-                </form>
-            @else
-                <a href="/login" class="text-foreground hover:text-primary">
-                    Login
-                </a>
+                            <a href="{{ route('admin.games.create') }}" class="btn btn-primary btn-sm">
+                                Add Game
+                            </a>
 
-                <a href="{{ route('register') }}" class="btn">
-                    Register
-                </a>
+                            <a href="{{ route('admin.orders.index') }}" class="hover:text-primary transition">
+                                Manage Orders
+                            </a>
+                        @endif
 
-            @endauth
+
+                        {{-- Logout --}}
+
+                        <form action="{{ route('logout') }}" method="POST">
+
+                            @csrf
+
+                            <button type="submit" class="hover:text-error transition">
+                                Logout
+                            </button>
+
+                        </form>
+                    @else
+                        <a href="{{ route('login') }}" class="hover:text-primary transition">
+                            Login
+                        </a>
+
+                        <a href="{{ route('register') }}" class="btn btn-primary btn-sm">
+                            Register
+                        </a>
+
+                    @endauth
+
+                </div>
+
+            </div>
 
         </div>
 

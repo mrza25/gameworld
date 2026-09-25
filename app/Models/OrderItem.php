@@ -15,6 +15,13 @@ class OrderItem extends Model
         'game_id',
         'quantity',
         'price',
+        'installation_status',
+        'installed_at',
+    ];
+
+    protected $casts = [
+        'price' => 'decimal:2',
+        'installed_at' => 'datetime',
     ];
 
     public function order(): BelongsTo
