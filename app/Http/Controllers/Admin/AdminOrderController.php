@@ -5,6 +5,9 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Notification;
+use App\Notifications\OrderStatusUpdated;
+
 
 class AdminOrderController extends Controller
 {
@@ -31,26 +34,35 @@ class AdminOrderController extends Controller
     }
 
     public function updateStatus(
-        Request $request,
-        Order $order
-    ) {
-        $validated = $request->validate([
-            'status' => [
-                'required',
-                'in:pending,confirmed,processing,ready,completed,cancelled',
-            ],
-        ]);
+    Request $request,
+    Order $order
+) {
+    $validated = $request->validate([
+        'status' => [
+            'required',
+            'in:pending,confirmed,processing,ready,completed,cancelled',
+        ],
+    ]);
 
-        $order->update([
-            'status' => $validated['status'],
-        ]);
+    $oldStatus = $order->status->value;
 
-        return back()->with(
-            'success',
-            'Order status updated successfully.'
+    $order->update([
+        'status' => $validated['status'],
+    ]);
+
+    $order->refresh();
+
+    if ($oldStatus !== $order->status->value) {
+        $order->user->notify(
+            new OrderStatusUpdated($order)
         );
     }
 
+    return back()->with(
+        'success',
+        'Order status updated successfully.'
+    );
+}
     public function updatePaymentStatus(
         Request $request,
         Order $order
@@ -87,6 +99,8 @@ class AdminOrderController extends Controller
     $item = $order->items()
         ->findOrFail($request->item_id);
 
+    $oldOrderStatus = $order->status->value;
+
     $item->update([
         'installation_status' => $validated['installation_status'],
         'installed_at' => $validated['installation_status'] === 'installed'
@@ -95,6 +109,14 @@ class AdminOrderController extends Controller
     ]);
 
     $order->syncStatusFromItems();
+
+    $order->refresh();
+
+    if ($oldOrderStatus !== $order->status->value) {
+        $order->user->notify(
+            new OrderStatusUpdated($order)
+        );
+    }
 
     return back()->with(
         'success',

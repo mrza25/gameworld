@@ -2,9 +2,11 @@
 
 namespace App;
 
+
 enum PaymentStatus: string
 {
-    case Unpaid = 'unpaid';
-    case Partial = 'partial';
+    case Pending = 'pending';
     case Paid = 'paid';
+    case Failed = 'failed';
+    case Refunded = 'refunded';
 }

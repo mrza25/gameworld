@@ -14,6 +14,13 @@ class GameController extends Controller
         return view('games.index', compact('games'));
     }
 
+    public function adminIndex()
+{
+    $games = Game::latest()->get();
+
+    return view('admin.games.index', compact('games'));
+}
+
     public function create()
     {
         return view('games.create');

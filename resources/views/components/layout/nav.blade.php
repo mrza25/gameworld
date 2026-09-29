@@ -5,7 +5,6 @@
         <div class="navbar min-h-16">
 
             {{-- Logo --}}
-
             <div class="flex-1">
 
                 <a href="{{ route('home') }}" class="text-xl font-bold">
@@ -16,11 +15,9 @@
 
 
             {{-- Navigation --}}
-
             <div class="flex-none">
 
                 <div class="flex items-center gap-5">
-
 
                     <a href="{{ route('games.index') }}" class="hover:text-primary transition">
                         Games
@@ -47,10 +44,25 @@
                         @endif
 
 
+                        {{-- Notifications --}}
+                        <a href="{{ route('notifications.index') }}" class="relative hover:text-primary transition"
+                            title="Notifications">
+
+                            <span class="text-xl">
+                                🔔
+                            </span>
+
+                            @if (auth()->user()->unreadNotifications->count() > 0)
+                                <span class="absolute -top-2 -right-3 badge badge-error badge-xs">
+                                    {{ auth()->user()->unreadNotifications->count() }}
+                                </span>
+                            @endif
+
+                        </a>
+
+
                         {{-- Logout --}}
-
                         <form action="{{ route('logout') }}" method="POST">
-
                             @csrf
 
                             <button type="submit" class="hover:text-error transition">

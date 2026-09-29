@@ -82,5 +82,11 @@ class Order extends Model
     $this->update([
         'status' => OrderStatus::Pending,
     ]);
+
+
+}
+public function payments(): HasMany
+{
+    return $this->hasMany(Payment::class);
 }
 }

@@ -23,24 +23,34 @@
 
                 <div class="flex items-center gap-5">
 
+                    {{-- Dashboard --}}
+                    <a href="{{ route('admin.dashboard') }}" class="hover:text-primary transition">
+                        Dashboard
+                    </a>
+
+
+                    {{-- Orders --}}
                     <a href="{{ route('admin.orders.index') }}" class="hover:text-primary transition">
                         Orders
                     </a>
 
+
+                    <a href="{{ route('admin.games.index') }}" class="hover:text-primary transition">
+                        Games
+                    </a>
 
                     <a href="{{ route('admin.games.create') }}" class="hover:text-primary transition">
                         Add Game
                     </a>
 
 
-                    <div class="divider divider-horizontal mx-0"></div>
-
-
+                    {{-- Website --}}
                     <a href="{{ route('home') }}" class="hover:text-primary transition">
                         Website
                     </a>
 
 
+                    {{-- Logout --}}
                     <form action="{{ route('logout') }}" method="POST">
                         @csrf
 
@@ -59,3 +69,4 @@
     </div>
 
 </nav>
+```

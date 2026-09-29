@@ -7,6 +7,9 @@ use App\Http\Middleware\AdminMiddleware;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\GameController;
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\Admin\AdminDashboardController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -81,7 +84,16 @@ Route::get('/games/{game}', [
 */
 
 Route::middleware('auth')->group(function () {
+//NOTIFICATIONS
+    Route::get('/notifications', [
+    NotificationController::class,
+    'index'
+])->name('notifications.index');
 
+Route::patch('/notifications/{notification}/read', [
+    NotificationController::class,
+    'markAsRead'
+])->name('notifications.read');
     /*
     |--------------------------------------------------------------------------
     | Consoles - Temporary
@@ -148,32 +160,37 @@ Route::middleware([
     ->name('admin.')
     ->group(function () {
 
-        /*
-        |--------------------------------------------------------------------------
-        | Game Management
-        |--------------------------------------------------------------------------
-        */
+        /* Game Management */
 
-        Route::get('/games/create', [
-            GameController::class,
-            'create'
-        ])->name('games.create');
+Route::get('/games', [
+    GameController::class,
+    'adminIndex'
+])->name('games.index');
 
-        Route::post('/games', [
-            GameController::class,
-            'store'
-        ])->name('games.store');
+Route::get('/games/create', [
+    GameController::class,
+    'create'
+])->name('games.create');
 
-        Route::get('/games/{game}/edit', [
-            GameController::class,
-            'edit'
-        ])->name('games.edit');
+Route::post('/games', [
+    GameController::class,
+    'store'
+])->name('games.store');
 
-        Route::patch('/games/{game}', [
-            GameController::class,
-            'update'
-        ])->name('games.update');
+Route::get('/games/{game}/edit', [
+    GameController::class,
+    'edit'
+])->name('games.edit');
 
+Route::patch('/games/{game}', [
+    GameController::class,
+    'update'
+])->name('games.update');
+
+Route::delete('/games/{game}', [
+    GameController::class,
+    'destroy'
+])->name('games.destroy');
         /*
         |--------------------------------------------------------------------------
         | Order Management
@@ -204,4 +221,9 @@ Route::middleware([
             AdminOrderController::class,
             'updateItemInstallationStatus'
         ])->name('orders.items.installation-status.update');
+
+        Route::get('/', [
+    AdminDashboardController::class,
+    'index'
+])->name('dashboard');
     });
