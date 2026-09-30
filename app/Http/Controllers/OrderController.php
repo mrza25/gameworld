@@ -6,9 +6,6 @@ use App\Models\Game;
 use App\Models\Order;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
-use App\OrderStatus;
-use App\PaymentStatus;
 
 class OrderController extends Controller
 {
@@ -33,9 +30,17 @@ class OrderController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'console_type' => ['required', 'string', 'max:255'],
+            'console_type' => [
+                'required',
+                'string',
+                'max:255',
+            ],
 
-            'games' => ['required', 'array', 'min:1'],
+            'games' => [
+                'required',
+                'array',
+                'min:1',
+            ],
 
             'games.*' => [
                 'integer',
@@ -44,38 +49,22 @@ class OrderController extends Controller
             ],
         ]);
 
-        $games = Game::whereIn(
-            'id',
-            $validated['games']
-        )->get();
+        /*
+         * فعلاً هیچ Order ساخته نمی‌شود.
+         *
+         * اطلاعات انتخاب‌شده را به Checkout منتقل می‌کنیم.
+         */
 
-        $order = DB::transaction(function () use ($validated, $games) {
-
-            $total = $games->sum('price');
-
-            $order = Order::create([
-                'user_id' => Auth::id(),
+        $request->session()->put(
+            'checkout',
+            [
                 'console_type' => $validated['console_type'],
-                'total' => $total,
-                'status' => 'pending',
-                'payment_status' => 'unpaid',
-            ]);
-
-            foreach ($games as $game) {
-                $order->items()->create([
-    'game_id' => $game->id,
-    'quantity' => 1,
-    'price' => $game->price,
-    'installation_status' => 'pending',
-]);
-            }
-
-            return $order;
-        });
+                'games' => $validated['games'],
+            ]
+        );
 
         return redirect()
-            ->route('orders.show', $order)
-            ->with('success', 'Order created successfully.');
+            ->route('checkout.index');
     }
 
     public function show(Order $order)

@@ -65,6 +65,9 @@ class AuthController extends Controller
             'phonenumber' => $validated['phonenumber'],
             'password' => Hash::make($validated['password']),
         ]);
+        $user->wallet()->create([
+    'balance' => 0,
+]);
 
 
         Auth::login($user);

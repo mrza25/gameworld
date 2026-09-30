@@ -19,6 +19,7 @@
 
                 <div class="flex items-center gap-5">
 
+                    {{-- Games --}}
                     <a href="{{ route('games.index') }}" class="hover:text-primary transition">
                         Games
                     </a>
@@ -26,18 +27,28 @@
 
                     @auth
 
+                        {{-- My Orders --}}
                         <a href="{{ route('orders.index') }}" class="hover:text-primary transition">
                             My Orders
                         </a>
 
 
+                        {{-- Wallet --}}
+                        <a href="{{ route('wallet.index') }}" class="hover:text-primary transition">
+                            Wallet
+                        </a>
+
+
+                        {{-- Admin Navigation --}}
                         @if (auth()->user()->is_admin)
                             <div class="divider divider-horizontal mx-0"></div>
 
+                            {{-- Add Game --}}
                             <a href="{{ route('admin.games.create') }}" class="btn btn-primary btn-sm">
                                 Add Game
                             </a>
 
+                            {{-- Manage Orders --}}
                             <a href="{{ route('admin.orders.index') }}" class="hover:text-primary transition">
                                 Manage Orders
                             </a>
@@ -63,6 +74,7 @@
 
                         {{-- Logout --}}
                         <form action="{{ route('logout') }}" method="POST">
+
                             @csrf
 
                             <button type="submit" class="hover:text-error transition">
@@ -71,10 +83,13 @@
 
                         </form>
                     @else
+                        {{-- Login --}}
                         <a href="{{ route('login') }}" class="hover:text-primary transition">
                             Login
                         </a>
 
+
+                        {{-- Register --}}
                         <a href="{{ route('register') }}" class="btn btn-primary btn-sm">
                             Register
                         </a>

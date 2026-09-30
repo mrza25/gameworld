@@ -9,8 +9,8 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\GameController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\Admin\AdminDashboardController;
-
-
+use App\Http\Controllers\WalletController;
+use App\Http\Controllers\CheckoutController;
 /*
 |--------------------------------------------------------------------------
 | Public Routes
@@ -144,6 +144,31 @@ Route::patch('/notifications/{notification}/read', [
         OrderController::class,
         'show'
     ])->name('orders.show');
+//wallet
+    Route::get('/wallet', [
+    WalletController::class,
+    'index'
+])->name('wallet.index');
+//checkout
+Route::post('/checkout/gateway', [
+    CheckoutController::class,
+    'payWithGateway'
+])->name('checkout.gateway');
+
+Route::get('/payment/callback', [
+    CheckoutController::class,
+    'gatewayCallback'
+])->name('payment.callback');
+Route::get('/checkout', [
+    CheckoutController::class,
+    'index'
+])->name('checkout.index');
+Route::post('/checkout/wallet', [
+    CheckoutController::class,
+    'payWithWallet'
+])->name('checkout.wallet');
+
+
 });
 
 /*

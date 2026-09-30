@@ -20,6 +20,7 @@ class Payment extends Model
         'status',
         'transaction_id',
         'paid_at',
+        'metadata',
     ];
 
     protected $casts = [
@@ -27,6 +28,7 @@ class Payment extends Model
         'method' => PaymentMethod::class,
         'status' => PaymentStatus::class,
         'paid_at' => 'datetime',
+        'metadata' => 'array',
     ];
 
     public function user(): BelongsTo
