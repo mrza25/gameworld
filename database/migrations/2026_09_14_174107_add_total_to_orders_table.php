@@ -10,13 +10,15 @@ return new class extends Migration
      * Run the migrations.
      */
     public function up(): void
-{
-    Schema::table('orders', function (Blueprint $table) {
-        $table->decimal('total', 10, 2)
-            ->default(0)
-            ->after('console_type');
-    });
-}
+    {
+        if (!Schema::hasColumn('orders', 'total')) {
+            Schema::table('orders', function (Blueprint $table) {
+                $table->decimal('total', 10, 2)
+                    ->default(0)
+                    ->after('console_type');
+            });
+        }
+    }
 
 public function down(): void
 {

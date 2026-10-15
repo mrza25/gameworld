@@ -16,6 +16,8 @@ class AdminOrderController extends Controller
         $orders = Order::with([
             'user',
             'items.game',
+            'items.gameVariant.platform',
+            'payments',
         ])
             ->latest()
             ->get();
@@ -28,6 +30,8 @@ class AdminOrderController extends Controller
         $order->load([
             'user',
             'items.game',
+            'items.gameVariant.platform',
+            'payments',
         ]);
 
         return view('admin.orders.show', compact('order'));

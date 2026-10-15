@@ -31,56 +31,92 @@ class GameController extends Controller
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:255'],
             'genre' => ['required', 'string', 'max:255'],
-            'platform' => ['required', 'string', 'max:255'],
-            'size' => ['required', 'numeric', 'min:0'],
-            'price' => ['required', 'numeric', 'min:0'],
+            'platform' => ['nullable', 'string', 'max:255'],
+            'size' => ['nullable', 'numeric', 'min:0'],
+            'price' => ['nullable', 'numeric', 'min:0'],
+            'description' => ['nullable', 'string'],
+            'developer' => ['nullable', 'string', 'max:255'],
+            'release_date' => ['nullable', 'date'],
+            'age_rating' => ['nullable', 'integer', 'min:0', 'max:18'],
+            'image' => ['nullable', 'string', 'max:500'],
         ]);
 
+        $baseSlug = \Illuminate\Support\Str::slug($validated['title']);
+        $slug = $baseSlug ?: 'game-' . time();
+        $counter = 1;
+        while (Game::where('slug', $slug)->exists()) {
+            $slug = $baseSlug . '-' . $counter++;
+        }
+
         Game::create([
-    'title' => $validated['title'],
-    'genre' => $validated['genre'],
-    'platform' => $validated['platform'],
-    'size' => $validated['size'],
-    'price' => $validated['price'],
-]);
+            'title' => $validated['title'],
+            'slug' => $slug,
+            'genre' => $validated['genre'],
+            'platform' => $validated['platform'] ?? 'Multi',
+            'size' => $validated['size'] ?? 0,
+            'price' => $validated['price'] ?? 0,
+            'description' => $validated['description'] ?? null,
+            'developer' => $validated['developer'] ?? null,
+            'release_date' => $validated['release_date'] ?? null,
+            'age_rating' => $validated['age_rating'] ?? null,
+            'image' => $validated['image'] ?? null,
+            'is_available' => true,
+        ]);
+
         return redirect()
-            ->route('games.index')
+            ->route('admin.games.index')
             ->with('success', 'Game created successfully.');
     }
 
     public function show(Game $game)
     {
+        $game->load('variants.platform');
+
         return view('games.show', compact('game'));
     }
 
     public function edit(Game $game)
     {
+        $game->load('variants.platform');
+
         return view('games.edit', compact('game'));
     }
 
     public function update(Request $request, Game $game)
     {
         $validated = $request->validate([
-    'title' => 'required|string|max:255',
-    'genre' => 'required|string|max:255',
-    'platform' => 'required|string|max:255',
-    'size' => 'required|numeric|min:0',
-    'price' => 'required|numeric|min:0',
-]);
+            'title' => ['required', 'string', 'max:255'],
+            'genre' => ['required', 'string', 'max:255'],
+            'platform' => ['nullable', 'string', 'max:255'],
+            'size' => ['nullable', 'numeric', 'min:0'],
+            'price' => ['nullable', 'numeric', 'min:0'],
+            'description' => ['nullable', 'string'],
+            'developer' => ['nullable', 'string', 'max:255'],
+            'release_date' => ['nullable', 'date'],
+            'age_rating' => ['nullable', 'integer', 'min:0', 'max:18'],
+            'image' => ['nullable', 'string', 'max:500'],
+            'is_available' => ['nullable', 'boolean'],
+        ]);
 
         $game->update($validated);
 
         return redirect()
-            ->route('games.show', $game)
+            ->route('admin.games.index')
             ->with('success', 'Game updated successfully.');
     }
 
     public function destroy(Game $game)
     {
+        if ($game->orderItems()->exists()) {
+            return redirect()
+                ->route('admin.games.index')
+                ->with('error', 'Cannot delete a game that has associated customer orders.');
+        }
+
         $game->delete();
 
         return redirect()
-            ->route('games.index')
+            ->route('admin.games.index')
             ->with('success', 'Game deleted successfully.');
     }
 }

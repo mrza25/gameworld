@@ -103,6 +103,19 @@
                             </p>
                         </div>
 
+                        @if ($order->payments->isNotEmpty())
+                            <div>
+                                <p class="text-sm text-zinc-500">
+                                    Transaction Ref
+                                </p>
+
+                                <p class="text-xs text-zinc-300 font-mono mt-1 break-all">
+                                    {{ $order->payments->last()->transaction_id ?? 'N/A' }}
+                                    ({{ ucfirst($order->payments->last()->method instanceof \BackedEnum ? $order->payments->last()->method->value : $order->payments->last()->method) }})
+                                </p>
+                            </div>
+                        @endif
+
                     </div>
 
                 </div>
@@ -222,7 +235,11 @@
                                     </span>
 
                                     <span class="px-3 py-1 rounded-full bg-zinc-800 text-zinc-300 text-sm">
-                                        {{ $item->game->platform }}
+                                        Platform: {{ $item->gameVariant?->platform?->name ?? $item->game->platform ?? $order->console_type }}
+                                    </span>
+
+                                    <span class="px-3 py-1 rounded-full bg-zinc-800 text-green-400 text-sm font-semibold">
+                                        Price: {{ number_format($item->price, 2) }}
                                     </span>
 
                                     <span class="px-3 py-1 rounded-full bg-zinc-800 text-zinc-300 text-sm">

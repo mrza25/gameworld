@@ -40,7 +40,7 @@
 
 
                         {{-- Admin Navigation --}}
-                        @if (auth()->user()->is_admin)
+                        @if (auth()->user()?->is_admin)
                             <div class="divider divider-horizontal mx-0"></div>
 
                             {{-- Add Game --}}

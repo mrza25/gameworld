@@ -16,30 +16,87 @@
             </p>
         </div>
 
+        @if (session('success'))
+            <div class="alert alert-success mb-6">
+                {{ session('success') }}
+            </div>
+        @endif
 
-        {{-- Balance --}}
-        <div class="card bg-base-100 shadow-sm mb-8">
+        @if (session('error'))
+            <div class="alert alert-error mb-6">
+                {{ session('error') }}
+            </div>
+        @endif
 
-            <div class="card-body">
+        @if ($errors->any())
+            <div class="alert alert-error mb-6">
+                <ul class="list-disc list-inside">
+                    @foreach ($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
 
-                <p class="text-sm text-base-content/60">
-                    Current Balance
-                </p>
-
-                <p class="text-4xl font-bold">
-                    {{ number_format($wallet->balance, 2) }}
-                </p>
-
-                <div class="mt-4">
-
-                    <button type="button" class="btn btn-primary">
-                        Charge Wallet
-                    </button>
-
+        {{-- Balance & Charge Form --}}
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            <div class="card bg-base-100 shadow-sm">
+                <div class="card-body">
+                    <p class="text-sm text-base-content/60">
+                        Current Balance
+                    </p>
+                    <p class="text-4xl font-bold">
+                        {{ number_format($wallet->balance, 2) }}
+                    </p>
+                    <p class="text-xs text-base-content/50 mt-1">
+                        Minimum top-up: 50,000
+                    </p>
                 </div>
-
             </div>
 
+            <div class="card bg-base-100 shadow-sm lg:col-span-2">
+                <div class="card-body">
+                    <h2 class="card-title text-base font-bold mb-2">
+                        Top-up Wallet Balance
+                    </h2>
+                    <form action="{{ route('wallet.charge') }}" method="POST" class="space-y-4">
+                        @csrf
+                        <div>
+                            <label for="amount" class="label">
+                                <span class="label-text">Top-up Amount</span>
+                            </label>
+                            <input
+                                type="number"
+                                name="amount"
+                                id="amount"
+                                min="50000"
+                                max="50000000"
+                                step="1000"
+                                placeholder="Enter amount (e.g. 100000)"
+                                value="{{ old('amount') }}"
+                                class="input input-bordered w-full"
+                                required
+                            />
+                        </div>
+
+                        <div class="flex flex-wrap gap-2">
+                            @foreach ([100000, 250000, 500000, 1000000, 2000000, 5000000] as $preset)
+                                <button
+                                    type="button"
+                                    onclick="document.getElementById('amount').value = '{{ $preset }}'"
+                                    class="btn btn-sm btn-outline"
+                                >
+                                    {{ number_format($preset) }}
+                                </button>
+                            @endforeach
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">
+                            Proceed to Payment
+                        </button>
+                    </form>
+                </div>
+            </div>
         </div>
 
 

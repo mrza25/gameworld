@@ -10,13 +10,15 @@ return new class extends Migration
      * Run the migrations.
      */
     public function up(): void
-{
-    Schema::table('orders', function (Blueprint $table) {
-        $table->string('payment_status')
-            ->default('unpaid')
-            ->after('status');
-    });
-}
+    {
+        if (!Schema::hasColumn('orders', 'payment_status')) {
+            Schema::table('orders', function (Blueprint $table) {
+                $table->string('payment_status')
+                    ->default('unpaid')
+                    ->after('status');
+            });
+        }
+    }
 
 public function down(): void
 {

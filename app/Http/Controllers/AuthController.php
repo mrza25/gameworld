@@ -16,6 +16,12 @@ class AuthController extends Controller
 
     public function login(Request $request)
     {
+        if ($request->filled('phonenumber')) {
+            $request->merge([
+                'phonenumber' => $this->normalizePhone((string) $request->input('phonenumber')),
+            ]);
+        }
+
         $credentials = $request->validate([
             'phonenumber' => 'required|string',
             'password' => 'required|string',
@@ -46,6 +52,12 @@ class AuthController extends Controller
 
     public function register(Request $request)
     {
+        if ($request->filled('phonenumber')) {
+            $request->merge([
+                'phonenumber' => $this->normalizePhone((string) $request->input('phonenumber')),
+            ]);
+        }
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
 
@@ -91,5 +103,22 @@ class AuthController extends Controller
         return redirect()
             ->route('home')
             ->with('success', 'You have been logged out.');
+    }
+
+    private function normalizePhone(string $phone): string
+    {
+        $fa = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+        $ar = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+        $en = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+
+        $phone = str_replace($fa, $en, $phone);
+        $phone = str_replace($ar, $en, $phone);
+        $digits = preg_replace('/\D/', '', $phone);
+
+        if (str_starts_with($digits, '989')) {
+            $digits = '0' . substr($digits, 2);
+        }
+
+        return $digits;
     }
 }

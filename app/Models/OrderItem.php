@@ -11,13 +11,14 @@ class OrderItem extends Model
     use HasFactory;
 
     protected $fillable = [
-        'order_id',
-        'game_id',
-        'quantity',
-        'price',
-        'installation_status',
-        'installed_at',
-    ];
+    'order_id',
+    'game_id',
+    'game_variant_id',
+    'quantity',
+    'price',
+    'installation_status',
+    'installed_at',
+];
 
     protected $casts = [
         'price' => 'decimal:2',
@@ -32,5 +33,10 @@ class OrderItem extends Model
     public function game(): BelongsTo
     {
         return $this->belongsTo(Game::class);
+    }
+
+    public function gameVariant(): BelongsTo
+    {
+        return $this->belongsTo(GameVariant::class);
     }
 }

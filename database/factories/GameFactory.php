@@ -17,8 +17,11 @@ class GameFactory extends Factory
      */
     public function definition(): array
     {
+        $title = fake()->sentence(3);
+
         return [
-            'title' => fake()->sentence(3),
+            'title' => $title,
+            'slug' => \Illuminate\Support\Str::slug($title) . '-' . fake()->unique()->randomNumber(4),
             'genre' => fake()->randomElement([
                 'Action',
                 'RPG',
@@ -27,12 +30,15 @@ class GameFactory extends Factory
                 'Racing',
                 'Horror',
             ]),
+            'description' => fake()->paragraph(),
+            'developer' => fake()->company(),
             'platform' => fake()->randomElement([
                 'PS4',
                 'PS5',
                 'Xbox',
             ]),
             'size' => fake()->randomFloat(2, 10, 150),
+            'is_available' => true,
         ];
     }
 }

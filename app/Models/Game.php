@@ -25,9 +25,21 @@ class Game extends Model
         return $this->hasMany(OrderItem::class);
     }
 
+    public function variants(): HasMany
+{
+    return $this->hasMany(GameVariant::class);
+}
+
     protected $fillable = [
         'title',
+        'slug',
         'genre',
+        'description',
+        'developer',
+        'release_date',
+        'age_rating',
+        'image',
+        'is_available',
         'platform',
         'size',
         'price',
@@ -36,7 +48,37 @@ class Game extends Model
     protected $casts = [
         'price' => 'decimal:2',
         'size' => 'decimal:2',
+        'release_date' => 'date',
+        'age_rating' => 'integer',
+        'is_available' => 'boolean',
     ];
+
+    protected $attributes = [
+        'platform' => 'PS5',
+        'size' => 0,
+        'price' => 0,
+        'is_available' => true,
+    ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (Game $game) {
+            if (empty($game->slug) && !empty($game->title)) {
+                $baseSlug = \Illuminate\Support\Str::slug($game->title) ?: 'game-' . uniqid();
+                $slug = $baseSlug;
+                $counter = 1;
+                while (static::where('slug', $slug)->exists()) {
+                    $slug = $baseSlug . '-' . $counter++;
+                }
+                $game->slug = $slug;
+            }
+        });
+    }
+
+    public function resolveRouteBinding($value, $field = null)
+    {
+        return $this->where($field ?? (is_numeric($value) ? 'id' : 'slug'), $value)->firstOrFail();
+    }
 
 
 }

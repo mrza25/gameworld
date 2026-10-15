@@ -37,7 +37,7 @@ Route::middleware('guest')->group(function () {
     Route::post('/login', [
         AuthController::class,
         'login'
-    ])->name('login.store');
+    ])->middleware('throttle:auth')->name('login.store');
 
     Route::get('/register', [
         AuthController::class,
@@ -47,7 +47,7 @@ Route::middleware('guest')->group(function () {
     Route::post('/register', [
         AuthController::class,
         'register'
-    ])->name('register.store');
+    ])->middleware('throttle:auth')->name('register.store');
 });
 
 Route::post('/logout', [
@@ -146,9 +146,19 @@ Route::patch('/notifications/{notification}/read', [
     ])->name('orders.show');
 //wallet
     Route::get('/wallet', [
-    WalletController::class,
-    'index'
-])->name('wallet.index');
+        WalletController::class,
+        'index'
+    ])->name('wallet.index');
+
+    Route::post('/wallet/charge', [
+        WalletController::class,
+        'charge'
+    ])->name('wallet.charge');
+
+    Route::get('/wallet/callback', [
+        WalletController::class,
+        'chargeCallback'
+    ])->name('wallet.callback');
 //checkout
 Route::post('/checkout/gateway', [
     CheckoutController::class,

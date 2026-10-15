@@ -8,9 +8,11 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('orders', function (Blueprint $table) {
-            $table->string('console_type')->after('user_id');
-        });
+        if (!Schema::hasColumn('orders', 'console_type')) {
+            Schema::table('orders', function (Blueprint $table) {
+                $table->string('console_type')->after('user_id');
+            });
+        }
     }
 
     public function down(): void

@@ -29,8 +29,19 @@ class UserFactory extends Factory
             'phonenumber' => fake()->unique()->numerify('09#########'),
             'phonenumber_verified_at' => now(),
             'password' => Hash::make('password'),
+            'is_admin' => false,
             'remember_token' => Str::random(10),
         ];
+    }
+
+    /**
+     * Indicate that the user is an administrator.
+     */
+    public function admin(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'is_admin' => true,
+        ]);
     }
 
     /**
