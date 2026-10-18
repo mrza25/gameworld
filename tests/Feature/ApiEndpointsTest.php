@@ -570,6 +570,65 @@ class ApiEndpointsTest extends TestCase
                 ],
             ]);
     }
+
+    public function test_api_ping_and_health_endpoints(): void
+    {
+        $ping = $this->getJson(route('api.ping'));
+        $ping->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'status' => 'pong',
+            ])
+            ->assertJsonStructure(['ok', 'status', 'timestamp']);
+
+        $health = $this->getJson(route('api.health'));
+        $health->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'status' => 'healthy',
+                'service' => 'gameworld-api',
+                'database' => 'connected',
+            ]);
+    }
+
+    public function test_api_cookie_based_authentication_flow(): void
+    {
+        $user = User::factory()->create([
+            'phonenumber' => '09129998877',
+            'password' => bcrypt('secret123'),
+        ]);
+
+        $loginRes = $this->postJson(route('api.auth.login'), [
+            'phone' => '09129998877',
+            'password' => 'secret123',
+        ]);
+
+        $loginRes->assertOk()
+            ->assertCookie('gw_token');
+
+        $token = $loginRes->json('token');
+        $this->assertNotEmpty($token);
+
+        // Access protected route using gw_token cookie alone (no Authorization header)
+        $meRes = $this->withCredentials()
+            ->withUnencryptedCookies(['gw_token' => $token])
+            ->getJson(route('api.auth.me'));
+
+        $meRes->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'user' => [
+                    'id' => $user->id,
+                    'phone' => '09129998877',
+                ],
+            ]);
+
+        // Logout clears cookie
+        $logoutRes = $this->withToken($token)
+            ->postJson(route('api.auth.logout'));
+
+        $logoutRes->assertOk();
+    }
 }
 
 

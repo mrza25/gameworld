@@ -11,6 +11,35 @@ use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
+| System & Health Check Routes
+|--------------------------------------------------------------------------
+*/
+Route::get('/ping', fn () => response()->json([
+    'ok' => true,
+    'status' => 'pong',
+    'timestamp' => now()->toIso8601String(),
+]))->name('api.ping');
+
+Route::get('/health', function () {
+    try {
+        \Illuminate\Support\Facades\DB::connection()->getPdo();
+        $dbStatus = 'connected';
+    } catch (\Throwable $e) {
+        $dbStatus = 'disconnected';
+    }
+
+    return response()->json([
+        'ok' => true,
+        'status' => 'healthy',
+        'service' => 'gameworld-api',
+        'version' => '1.0.0',
+        'database' => $dbStatus,
+        'timestamp' => now()->toIso8601String(),
+    ]);
+})->name('api.health');
+
+/*
+|--------------------------------------------------------------------------
 | Public Catalog & Platform Routes
 |--------------------------------------------------------------------------
 */

@@ -85,12 +85,7 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth-token')->plainTextToken;
 
-        return response()->json([
-            'ok' => true,
-            'message' => 'ثبت‌نام با موفقیت انجام شد.',
-            'user' => $this->transformUser($user),
-            'token' => $token,
-        ], 201);
+        return $this->respondWithToken($user, $token, 'ثبت‌نام با موفقیت انجام شد.', 201);
     }
 
     /**
@@ -117,12 +112,7 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth-token')->plainTextToken;
 
-        return response()->json([
-            'ok' => true,
-            'message' => 'ورود موفقیت‌آمیز بود.',
-            'user' => $this->transformUser($user),
-            'token' => $token,
-        ]);
+        return $this->respondWithToken($user, $token, 'ورود موفقیت‌آمیز بود.');
     }
 
     /**
@@ -148,7 +138,7 @@ class AuthController extends Controller
         return response()->json([
             'ok' => true,
             'message' => 'با موفقیت خارج شدید.',
-        ]);
+        ])->withoutCookie('gw_token', '/');
     }
 
     /**
@@ -248,13 +238,13 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth-token')->plainTextToken;
 
-        return response()->json([
-            'ok' => true,
-            'message' => $isNew ? 'ثبت‌نام و ورود با موفقیت انجام شد.' : 'ورود با موفقیت انجام شد.',
-            'is_new_user' => $isNew,
-            'user' => $this->transformUser($user),
-            'token' => $token,
-        ]);
+        return $this->respondWithToken(
+            $user,
+            $token,
+            $isNew ? 'ثبت‌نام و ورود با موفقیت انجام شد.' : 'ورود با موفقیت انجام شد.',
+            200,
+            ['is_new_user' => $isNew]
+        );
     }
 
     /**
@@ -295,12 +285,7 @@ class AuthController extends Controller
         $user->tokens()->delete();
         $token = $user->createToken('auth-token')->plainTextToken;
 
-        return response()->json([
-            'ok' => true,
-            'message' => 'رمز عبور با موفقیت به‌روزرسانی شد.',
-            'token' => $token,
-            'user' => $this->transformUser($user),
-        ]);
+        return $this->respondWithToken($user, $token, 'رمز عبور با موفقیت به‌روزرسانی شد.');
     }
 
     /**
@@ -442,6 +427,32 @@ class AuthController extends Controller
             'joined_at' => \App\Helpers\Jalali::fromDateTime($user->created_at),
             'created_at' => $user->created_at?->toIso8601String(),
         ];
+    }
+
+    private function respondWithToken(User $user, string $token, string $message, int $status = 200, array $extra = []): JsonResponse
+    {
+        $isSecure = config('app.env') === 'production';
+
+        $cookie = cookie(
+            name: 'gw_token',
+            value: $token,
+            minutes: 10080, // 7 days
+            path: '/',
+            domain: null,
+            secure: $isSecure,
+            httpOnly: true,
+            raw: false,
+            sameSite: 'lax'
+        );
+
+        $payload = array_merge([
+            'ok' => true,
+            'message' => $message,
+            'user' => $this->transformUser($user),
+            'token' => $token,
+        ], $extra);
+
+        return response()->json($payload, $status)->withCookie($cookie);
     }
 }
 
