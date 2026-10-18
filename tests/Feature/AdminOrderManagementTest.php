@@ -94,7 +94,7 @@ class AdminOrderManagementTest extends TestCase
 
         $response = $this->actingAs($this->customer)->patch(
             route('admin.orders.status.update', $order),
-            ['status' => 'confirmed']
+            ['status' => 'processing']
         );
 
         $response->assertForbidden();
@@ -114,11 +114,11 @@ class AdminOrderManagementTest extends TestCase
 
         $response = $this->actingAs($this->admin)->patch(
             route('admin.orders.status.update', $order),
-            ['status' => 'confirmed']
+            ['status' => 'processing']
         );
 
         $response->assertSessionHas('success');
-        $this->assertEquals(OrderStatus::Confirmed, $order->fresh()->status);
+        $this->assertEquals(OrderStatus::Processing, $order->fresh()->status);
 
         Notification::assertSentTo(
             $this->customer,
@@ -219,7 +219,7 @@ class AdminOrderManagementTest extends TestCase
         $this->assertNotNull($item1->fresh()->installed_at);
         $this->assertEquals(OrderStatus::Processing, $order->fresh()->status);
 
-        // 3. Transition item 2 to 'installed' -> ALL items installed, order auto-syncs to 'ready'
+        // 3. Transition item 2 to 'installed' -> ALL items installed, order auto-syncs to 'completed'
         $this->actingAs($this->admin)->patch(
             route('admin.orders.items.installation-status.update', $order),
             [
@@ -230,7 +230,7 @@ class AdminOrderManagementTest extends TestCase
 
         $this->assertEquals('installed', $item2->fresh()->installation_status);
         $this->assertNotNull($item2->fresh()->installed_at);
-        $this->assertEquals(OrderStatus::Ready, $order->fresh()->status);
+        $this->assertEquals(OrderStatus::Completed, $order->fresh()->status);
 
         // 4. Revert item 2 back to 'pending' -> installed_at is cleared, order reverts to 'processing'
         $this->actingAs($this->admin)->patch(

@@ -41,5 +41,10 @@ class AppServiceProvider extends ServiceProvider
             $limit = app()->runningUnitTests() ? 1000 : 10;
             return Limit::perMinute($limit)->by($request->ip());
         });
+
+        RateLimiter::for('financial', function (Request $request) {
+            $limit = app()->runningUnitTests() ? 1000 : 20;
+            return Limit::perMinute($limit)->by($request->user()?->id ?: $request->ip());
+        });
     }
 }

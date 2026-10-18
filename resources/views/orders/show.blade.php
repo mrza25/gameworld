@@ -36,11 +36,8 @@
             @php
                 $statusClass = match ($order->status->value) {
                     'pending' => 'badge-warning',
-                    'confirmed' => 'badge-info',
                     'processing' => 'badge-info',
-                    'ready' => 'badge-success',
                     'completed' => 'badge-success',
-                    'cancelled' => 'badge-error',
                     default => 'badge-neutral',
                 };
             @endphp

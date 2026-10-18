@@ -153,30 +153,33 @@ Route::patch('/notifications/{notification}/read', [
     Route::post('/wallet/charge', [
         WalletController::class,
         'charge'
-    ])->name('wallet.charge');
+    ])->middleware('throttle:financial')->name('wallet.charge');
 
     Route::get('/wallet/callback', [
         WalletController::class,
         'chargeCallback'
     ])->name('wallet.callback');
-//checkout
-Route::post('/checkout/gateway', [
-    CheckoutController::class,
-    'payWithGateway'
-])->name('checkout.gateway');
 
-Route::get('/payment/callback', [
-    CheckoutController::class,
-    'gatewayCallback'
-])->name('payment.callback');
-Route::get('/checkout', [
-    CheckoutController::class,
-    'index'
-])->name('checkout.index');
-Route::post('/checkout/wallet', [
-    CheckoutController::class,
-    'payWithWallet'
-])->name('checkout.wallet');
+    // checkout
+    Route::post('/checkout/gateway', [
+        CheckoutController::class,
+        'payWithGateway'
+    ])->middleware('throttle:financial')->name('checkout.gateway');
+
+    Route::get('/payment/callback', [
+        CheckoutController::class,
+        'gatewayCallback'
+    ])->name('payment.callback');
+
+    Route::get('/checkout', [
+        CheckoutController::class,
+        'index'
+    ])->name('checkout.index');
+
+    Route::post('/checkout/wallet', [
+        CheckoutController::class,
+        'payWithWallet'
+    ])->middleware('throttle:financial')->name('checkout.wallet');
 
 
 });

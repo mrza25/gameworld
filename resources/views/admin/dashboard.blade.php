@@ -91,19 +91,19 @@
             </div>
 
 
-            {{-- Ready --}}
+            {{-- Completed --}}
             <div class="stat bg-base-100 shadow rounded-box">
 
                 <div class="stat-title">
-                    Ready
+                    Completed
                 </div>
 
                 <div class="stat-value text-success">
-                    {{ $stats['ready_orders'] }}
+                    {{ $stats['completed_orders'] }}
                 </div>
 
                 <div class="stat-desc">
-                    Ready for delivery
+                    Completed orders
                 </div>
 
             </div>
@@ -198,11 +198,8 @@
 
                                                 $statusClass = match ($status) {
                                                     'pending' => 'badge-warning',
-                                                    'confirmed' => 'badge-info',
                                                     'processing' => 'badge-info',
-                                                    'ready' => 'badge-success',
                                                     'completed' => 'badge-success',
-                                                    'cancelled' => 'badge-error',
                                                     default => 'badge-neutral',
                                                 };
                                             @endphp

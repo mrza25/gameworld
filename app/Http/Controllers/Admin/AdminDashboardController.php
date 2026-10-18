@@ -23,9 +23,9 @@ class AdminDashboardController extends Controller
                 'status',
                 OrderStatus::Processing
             )->count(),
-            'ready_orders' => Order::where(
+            'completed_orders' => Order::where(
                 'status',
-                OrderStatus::Ready
+                OrderStatus::Completed
             )->count(),
         ];
 

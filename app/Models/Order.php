@@ -19,6 +19,7 @@ class Order extends Model
     protected $fillable = [
         'user_id',
         'console_type',
+        'console_note',
         'total',
         'status',
         'payment_status',
@@ -46,45 +47,26 @@ class Order extends Model
     }
 
     public function syncStatusFromItems(): void
-{
-    $items = $this->items()->get();
+    {
+        $items = $this->relationLoaded('items') ? $this->items : $this->items()->get();
 
-    if ($items->isEmpty()) {
-        return;
+        if ($items->isEmpty()) {
+            return;
+        }
+
+        $newStatus = OrderStatus::Pending;
+
+        // All games are installed
+        if ($items->every(fn ($item) => $item->installation_status === 'installed')) {
+            $newStatus = OrderStatus::Completed;
+        } elseif ($items->contains(fn ($item) => in_array($item->installation_status, ['installing', 'installed'], true))) {
+            $newStatus = OrderStatus::Processing;
+        }
+
+        if ($this->status !== $newStatus) {
+            $this->update(['status' => $newStatus]);
+        }
     }
-
-    // All games are installed
-    if ($items->every(
-        fn ($item) => $item->installation_status === 'installed'
-    )) {
-        $this->update([
-            'status' => OrderStatus::Ready,
-        ]);
-
-        return;
-    }
-
-    // At least one game has started installing
-    if ($items->contains(
-        fn ($item) => in_array(
-            $item->installation_status,
-            ['installing', 'installed']
-        )
-    )) {
-        $this->update([
-            'status' => OrderStatus::Processing,
-        ]);
-
-        return;
-    }
-
-    // All games are still pending
-    $this->update([
-        'status' => OrderStatus::Pending,
-    ]);
-
-
-}
 public function payments(): HasMany
 {
     return $this->hasMany(Payment::class);

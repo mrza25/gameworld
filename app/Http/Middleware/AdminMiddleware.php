@@ -12,8 +12,18 @@ class AdminMiddleware
         Request $request,
         Closure $next
     ): Response {
-        if (! $request->user()?->is_admin) {
-            abort(403);
+        $user = $request->user();
+
+        if (! $user) {
+            if ($request->expectsJson()) {
+                abort(401, 'Unauthenticated.');
+            }
+
+            return redirect()->guest(route('login'));
+        }
+
+        if (! $user->is_admin) {
+            abort(403, 'Unauthorized access.');
         }
 
         return $next($request);

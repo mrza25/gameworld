@@ -44,7 +44,7 @@ class AdminOrderController extends Controller
     $validated = $request->validate([
         'status' => [
             'required',
-            'in:pending,confirmed,processing,ready,completed,cancelled',
+            'in:pending,processing,completed',
         ],
     ]);
 
