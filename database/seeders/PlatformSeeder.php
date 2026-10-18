@@ -2,34 +2,37 @@
 
 namespace Database\Seeders;
 
-use App\Models\Platform;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class PlatformSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
     public function run(): void
     {
         $platforms = [
-            ['name' => 'PS5', 'slug' => 'ps5'],
-            ['name' => 'PS5 Copy', 'slug' => 'ps5-copy'],
-            ['name' => 'PS4', 'slug' => 'ps4'],
-            ['name' => 'PS4 Copy', 'slug' => 'ps4-copy'],
+            ['name' => 'PlayStation 5', 'slug' => 'ps5'],
+            ['name' => 'PlayStation 5 (کپی‌خور)', 'slug' => 'ps5-copy'],
+            ['name' => 'PlayStation 4', 'slug' => 'ps4'],
+            ['name' => 'PlayStation 4 (کپی‌خور)', 'slug' => 'ps4-copy'],
             ['name' => 'Xbox Series X', 'slug' => 'xbox-series-x'],
+            ['name' => 'Xbox Series X (کپی‌خور)', 'slug' => 'xbox-series-x-copy'],
             ['name' => 'Xbox Series S', 'slug' => 'xbox-series-s'],
-            ['name' => 'Xbox Series S Copy', 'slug' => 'xbox-series-s-copy'],
+            ['name' => 'Xbox Series S (کپی‌خور)', 'slug' => 'xbox-series-s-copy'],
             ['name' => 'Xbox One', 'slug' => 'xbox-one'],
-            ['name' => 'Xbox One Copy', 'slug' => 'xbox-one-copy'],
+            ['name' => 'Xbox One (کپی‌خور)', 'slug' => 'xbox-one-copy'],
+            ['name' => 'سایر کنسول‌ها', 'slug' => 'other'],
         ];
 
-        foreach ($platforms as $platform) {
-            Platform::updateOrCreate(
-                ['slug' => $platform['slug']],
-                ['name' => $platform['name']]
+        $now = now();
+        foreach ($platforms as $p) {
+            DB::table('platforms')->updateOrInsert(
+                ['slug' => $p['slug']],
+                [
+                    'name' => $p['name'],
+                    'updated_at' => $now,
+                    'created_at' => $now,
+                ]
             );
         }
     }
 }
-

@@ -48,6 +48,23 @@ class WalletController extends Controller
     }
 
     /**
+     * Get paginated wallet transactions.
+     */
+    public function transactions(Request $request): JsonResponse
+    {
+        $wallet = $this->walletService->getOrCreateWallet($request->user());
+
+        $transactions = $wallet->transactions()
+            ->latest()
+            ->paginate($request->integer('per_page', 15));
+
+        return response()->json([
+            'ok' => true,
+            'data' => $transactions,
+        ]);
+    }
+
+    /**
      * Initiate a gateway top-up.
      */
     public function charge(Request $request): JsonResponse

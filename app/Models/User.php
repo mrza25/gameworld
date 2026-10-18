@@ -24,11 +24,23 @@ class User extends Authenticatable
      * @var list<string>
      */
     protected $fillable = [
-    'name',
-    'phonenumber',
-    'password',
-    'is_admin',
-];
+        'name',
+        'avatar',
+        'phonenumber',
+        'password',
+        'is_admin',
+    ];
+
+    public function getAvatarUrlAttribute(): string
+    {
+        if ($this->avatar) {
+            return \Illuminate\Support\Str::startsWith($this->avatar, ['http://', 'https://'])
+                ? $this->avatar
+                : url('storage/' . ltrim($this->avatar, '/'));
+        }
+
+        return url('/images/default-avatar.png');
+    }
 
     /**
      * The model's default values for attributes.

@@ -300,19 +300,19 @@ class ApiEndpointsTest extends TestCase
 
         // 4. Admin update order status
         $statusRes = $this->withToken($adminToken)->patchJson(route('api.admin.orders.status', $order->id), [
-            'status' => 'confirmed',
+            'status' => 'processing',
         ]);
         $statusRes->assertOk()->assertJson(['ok' => true]);
-        $this->assertEquals('confirmed', $order->fresh()->status->value);
+        $this->assertEquals('processing', $order->fresh()->status->value);
 
-        // 5. Admin update item installation status -> installs item, auto syncs order to ready
+        // 5. Admin update item installation status -> installs item, auto syncs order to completed
         $installRes = $this->withToken($adminToken)->patchJson(
             route('api.admin.orders.items.installation', ['id' => $order->id, 'itemId' => $item->id]),
             ['installation_status' => 'installed']
         );
-        $installRes->assertOk()->assertJson(['ok' => true, 'order_status' => 'ready']);
+        $installRes->assertOk()->assertJson(['ok' => true, 'order_status' => 'completed']);
         $this->assertEquals('installed', $item->fresh()->installation_status);
-        $this->assertEquals('ready', $order->fresh()->status->value);
+        $this->assertEquals('completed', $order->fresh()->status->value);
     }
 
     public function test_api_admin_endpoints_blocked_for_regular_customers(): void
@@ -323,5 +323,181 @@ class ApiEndpointsTest extends TestCase
         $response = $this->withToken($token)->getJson(route('api.admin.dashboard'));
         $response->assertForbidden();
     }
+
+    public function test_api_otp_flow_and_login_with_otp_and_reset_password(): void
+    {
+        // 1. Send OTP
+        $sendRes = $this->postJson(route('api.auth.send-otp'), [
+            'phone' => '09129998877',
+        ]);
+        $sendRes->assertOk()->assertJson(['ok' => true]);
+        $code = $sendRes->json('debug_code');
+        $this->assertNotNull($code);
+
+        // 2. Verify OTP
+        $verifyRes = $this->postJson(route('api.auth.verify-otp'), [
+            'phone' => '09129998877',
+            'code' => $code,
+        ]);
+        $verifyRes->assertOk()->assertJson(['ok' => true, 'valid' => true]);
+
+        // 3. Login with OTP (creates new user)
+        $loginRes = $this->postJson(route('api.auth.login-with-otp'), [
+            'phone' => '09129998877',
+            'code' => $code,
+            'name' => 'کاربر تستی جدید',
+        ]);
+        $loginRes->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'is_new_user' => true,
+            ])
+            ->assertJsonStructure(['token', 'user' => ['id', 'name', 'phone', 'avatar', 'wallet_balance']]);
+
+        $token = $loginRes->json('token');
+
+        // 4. Update Profile
+        $profileRes = $this->withToken($token)->patchJson(route('api.auth.profile'), [
+            'name' => 'نام ویرایش شده',
+        ]);
+        $profileRes->assertOk()->assertJson(['ok' => true, 'user' => ['name' => 'نام ویرایش شده']]);
+
+        // 5. Send OTP again for reset password
+        $sendRes2 = $this->postJson(route('api.auth.send-otp'), ['phone' => '09129998877']);
+        $code2 = $sendRes2->json('debug_code');
+
+        $resetRes = $this->postJson(route('api.auth.reset-password'), [
+            'phone' => '09129998877',
+            'code' => $code2,
+            'password' => 'newpassword123',
+        ]);
+        $resetRes->assertOk()->assertJson(['ok' => true]);
+    }
+
+    public function test_api_checkout_supports_console_note(): void
+    {
+        [$platform, $game, $variant] = $this->createPlatformAndGame();
+
+        $customer = User::factory()->create();
+        $customer->wallet()->create(['balance' => 200000]);
+        $token = $customer->createToken('cust-test')->plainTextToken;
+
+        $response = $this->withToken($token)->postJson(route('api.orders.checkout'), [
+            'console' => $platform->slug,
+            'console_note' => 'PS3 Slim 500GB',
+            'method' => 'wallet',
+            'variants' => [$variant->id],
+        ]);
+
+        $response->assertCreated()
+            ->assertJson([
+                'ok' => true,
+                'method' => 'wallet',
+                'order' => [
+                    'consoleNote' => 'PS3 Slim 500GB',
+                ],
+            ]);
+
+        $this->assertDatabaseHas('orders', [
+            'console_note' => 'PS3 Slim 500GB',
+        ]);
+    }
+
+    public function test_api_banners_and_game_rating_and_notifications(): void
+    {
+        [$platform, $game, $variant] = $this->createPlatformAndGame();
+
+        $customer = User::factory()->create();
+        $token = $customer->createToken('cust-test')->plainTextToken;
+
+        // 1. Public banners list
+        $bannerRes = $this->getJson(route('api.banners'));
+        $bannerRes->assertOk()->assertJson(['ok' => true]);
+
+        // 2. Rate game
+        $rateRes = $this->withToken($token)->postJson(route('api.games.rate', $game->id), [
+            'rating' => 5,
+            'comment' => 'عالی بود!',
+        ]);
+        $rateRes->assertOk()->assertJson(['ok' => true, 'average_rating' => 5]);
+
+        // 3. User notifications
+        $notifRes = $this->withToken($token)->getJson(route('api.notifications.index'));
+        $notifRes->assertOk()->assertJson(['ok' => true]);
+
+        // 4. User transactions
+        $txRes = $this->withToken($token)->getJson(route('api.wallet.transactions'));
+        $txRes->assertOk()->assertJson(['ok' => true]);
+    }
+
+    public function test_api_admin_can_manage_users_games_banners_and_transactions(): void
+    {
+        $platform = Platform::create(['name' => 'PS5 Pro', 'slug' => 'ps5-pro']);
+        $admin = User::factory()->admin()->create();
+        $adminToken = $admin->createToken('admin-test')->plainTextToken;
+
+        // 1. Admin create user
+        $createUserRes = $this->withToken($adminToken)->postJson(route('api.admin.users.store'), [
+            'name' => 'کاربر جدید ادمین',
+            'phone' => '09127776655',
+            'password' => 'password123',
+            'is_admin' => false,
+        ]);
+        $createUserRes->assertCreated()->assertJson(['ok' => true]);
+        $newUserId = $createUserRes->json('data.id');
+
+        // 2. Admin update user
+        $updateUserRes = $this->withToken($adminToken)->patchJson(route('api.admin.users.update', $newUserId), [
+            'wallet_balance' => 150000,
+        ]);
+        $updateUserRes->assertOk()->assertJson(['ok' => true]);
+        $this->assertEquals(150000, User::find($newUserId)->wallet->balance);
+
+        // 3. Admin create game
+        $createGameRes = $this->withToken($adminToken)->postJson(route('api.admin.games.store'), [
+            'title' => 'God of War Ragnarok',
+            'genre' => 'Action',
+            'variants' => [
+                [
+                    'platform_id' => $platform->id,
+                    'price' => 250000,
+                    'size' => 90,
+                ],
+            ],
+        ]);
+        $createGameRes->assertCreated()->assertJson(['ok' => true]);
+        $newGameId = $createGameRes->json('data.id');
+
+        // 4. Admin update game
+        $updateGameRes = $this->withToken($adminToken)->patchJson(route('api.admin.games.update', $newGameId), [
+            'description' => 'Updated description',
+        ]);
+        $updateGameRes->assertOk()->assertJson(['ok' => true]);
+
+        // 5. Admin banners
+        $bannerRes = $this->withToken($adminToken)->postJson(route('api.admin.banners.store'), [
+            'title' => 'تخفیف ویژه نوروز',
+            'image' => '/images/banner.jpg',
+            'link' => '/products',
+        ]);
+        $bannerRes->assertCreated()->assertJson(['ok' => true]);
+        $bannerId = $bannerRes->json('id');
+
+        $delBannerRes = $this->withToken($adminToken)->deleteJson(route('api.admin.banners.delete', $bannerId));
+        $delBannerRes->assertOk()->assertJson(['ok' => true]);
+
+        // 6. Admin transactions
+        $txRes = $this->withToken($adminToken)->getJson(route('api.admin.transactions'));
+        $txRes->assertOk()->assertJson(['ok' => true]);
+
+        // 7. Admin delete game
+        $delGameRes = $this->withToken($adminToken)->deleteJson(route('api.admin.games.delete', $newGameId));
+        $delGameRes->assertOk()->assertJson(['ok' => true]);
+
+        // 8. Admin delete user
+        $delUserRes = $this->withToken($adminToken)->deleteJson(route('api.admin.users.delete', $newUserId));
+        $delUserRes->assertOk()->assertJson(['ok' => true]);
+    }
 }
+
 

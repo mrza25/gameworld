@@ -66,6 +66,7 @@ class OrderController extends Controller
     {
         $validated = $request->validate([
             'console' => ['required', 'string'],
+            'console_note' => ['nullable', 'string', 'max:255'],
             'method' => ['required', 'in:wallet,gateway'],
             'variants' => ['nullable', 'array', 'min:1'],
             'variants.*' => ['integer', 'exists:game_variants,id'],
@@ -129,14 +130,18 @@ class OrderController extends Controller
             }
         }
 
-        $total = $variants->sum(fn ($v) => (float) $v->price);
+        $totalCents = $variants->sum(fn (GameVariant $v) => (int) round((float) $v->price * 100));
+        $total = $totalCents / 100;
 
         // Wallet Checkout
         if ($validated['method'] === 'wallet') {
             try {
                 $order = $this->checkoutService->checkoutWithWallet(
                     $request->user(),
-                    ['console_type' => $platform->name],
+                    [
+                        'console_type' => $platform->name,
+                        'console_note' => $validated['console_note'] ?? null,
+                    ],
                     $variantIds,
                     $total
                 );
@@ -160,7 +165,10 @@ class OrderController extends Controller
         try {
             $payment = $this->checkoutService->createGatewayPayment(
                 $request->user(),
-                ['console_type' => $platform->name],
+                [
+                    'console_type' => $platform->name,
+                    'console_note' => $validated['console_note'] ?? null,
+                ],
                 $variantIds,
                 $total
             );
@@ -241,11 +249,8 @@ class OrderController extends Controller
     {
         $statusMap = [
             'pending' => 'در حال بررسی',
-            'confirmed' => 'در حال بررسی',
             'processing' => 'در حال پردازش',
-            'ready' => 'آماده تحویل',
             'completed' => 'تکمیل شده',
-            'cancelled' => 'لغو شده',
         ];
 
         $paymentMap = [
@@ -271,6 +276,7 @@ class OrderController extends Controller
             'phone' => $order->user?->phonenumber,
             'console' => Str::slug($order->console_type),
             'consoleLabel' => $order->console_type,
+            'consoleNote' => $order->console_note,
             'amount' => (float) $order->total,
             'total' => (float) $order->total,
             'status' => $statusMap[$statusValue] ?? $statusValue,

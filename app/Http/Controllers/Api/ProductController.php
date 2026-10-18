@@ -91,7 +91,9 @@ class ProductController extends Controller
             'age' => $game->age_rating ?? 16,
             'available' => (bool) $game->is_available,
             'description' => $game->description,
-            'image' => $game->image ?: '/images/logosite.png',
+            'image' => $game->image
+                ? (\Illuminate\Support\Str::startsWith($game->image, ['http://', 'https://']) ? $game->image : url('storage/' . ltrim($game->image, '/')))
+                : url('/images/logosite.png'),
             'platforms' => $game->variants->map(fn ($variant) => [
                 'id' => $variant->id,
                 'variant_id' => $variant->id,

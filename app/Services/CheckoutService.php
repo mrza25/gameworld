@@ -51,6 +51,7 @@ class CheckoutService
                 null,
                 [
                     'console_type' => $orderData['console_type'],
+                    'console_note' => $orderData['console_note'] ?? null,
                     'items' => $snapshot['items'],
                 ]
             );
@@ -111,6 +112,7 @@ class CheckoutService
                 null,
                 [
                     'console_type' => $orderData['console_type'],
+                    'console_note' => $orderData['console_note'] ?? null,
                     'items' => $snapshot['items'],
                 ]
             );
@@ -294,6 +296,7 @@ class CheckoutService
                 $payment->user,
                 [
                     'console_type' => $metadata['console_type'],
+                    'console_note' => $metadata['console_note'] ?? null,
                 ],
                 $metadata['items'],
                 $total
@@ -409,6 +412,7 @@ class CheckoutService
         $order = Order::create([
             'user_id' => $user->id,
             'console_type' => $orderData['console_type'],
+            'console_note' => $orderData['console_note'] ?? null,
             'total' => $amount,
             'status' => 'pending',
             'payment_status' => 'paid',

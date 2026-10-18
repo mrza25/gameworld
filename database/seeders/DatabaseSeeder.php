@@ -13,11 +13,27 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        $this->call(PlatformSeeder::class);
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+        // Test Admin
+        User::firstOrCreate(
+            ['phonenumber' => '09120000000'],
+            [
+                'name' => 'مدیر سیستم',
+                'password' => \Illuminate\Support\Facades\Hash::make('password123'),
+                'is_admin' => true,
+            ]
+        );
+
+        // Test Customer
+        $customer = User::firstOrCreate(
+            ['phonenumber' => '09121111111'],
+            [
+                'name' => 'کاربر تستی',
+                'password' => \Illuminate\Support\Facades\Hash::make('password123'),
+                'is_admin' => false,
+            ]
+        );
+        $customer->wallet()->firstOrCreate(['user_id' => $customer->id], ['balance' => 500000]);
     }
 }

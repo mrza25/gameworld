@@ -28,7 +28,6 @@ class AdminController extends Controller
             'users' => User::count(),
             'pending_orders' => Order::where('status', OrderStatus::Pending)->count(),
             'processing_orders' => Order::where('status', OrderStatus::Processing)->count(),
-            'ready_orders' => Order::where('status', OrderStatus::Ready)->count(),
             'completed_orders' => Order::where('status', OrderStatus::Completed)->count(),
         ];
 
@@ -194,15 +193,310 @@ class AdminController extends Controller
         ]);
     }
 
+    /**
+     * Create a user by admin.
+     */
+    public function storeUser(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'phone' => ['required', 'string', 'max:20', 'unique:users,phonenumber'],
+            'password' => ['required', 'string', 'min:6'],
+            'is_admin' => ['nullable', 'boolean'],
+        ]);
+
+        $user = User::create([
+            'name' => $validated['name'],
+            'phonenumber' => $validated['phone'],
+            'password' => \Illuminate\Support\Facades\Hash::make($validated['password']),
+            'is_admin' => $validated['is_admin'] ?? false,
+        ]);
+
+        $user->wallet()->firstOrCreate(['user_id' => $user->id], ['balance' => 0]);
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'کاربر با موفقیت ایجاد شد.',
+            'data' => $user->load('wallet'),
+        ], 201);
+    }
+
+    /**
+     * Update user by admin.
+     */
+    public function updateUser(Request $request, int $id): JsonResponse
+    {
+        $user = User::findOrFail($id);
+
+        $validated = $request->validate([
+            'name' => ['nullable', 'string', 'max:255'],
+            'phone' => ['nullable', 'string', 'max:20', 'unique:users,phonenumber,' . $id],
+            'password' => ['nullable', 'string', 'min:6'],
+            'is_admin' => ['nullable', 'boolean'],
+            'wallet_balance' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        if (isset($validated['name'])) $user->name = $validated['name'];
+        if (isset($validated['phone'])) $user->phonenumber = $validated['phone'];
+        if (!empty($validated['password'])) $user->password = \Illuminate\Support\Facades\Hash::make($validated['password']);
+        if (isset($validated['is_admin'])) $user->is_admin = $validated['is_admin'];
+        $user->save();
+
+        if (isset($validated['wallet_balance'])) {
+            $wallet = $user->wallet()->firstOrCreate(['user_id' => $user->id], ['balance' => 0]);
+            $wallet->update(['balance' => $validated['wallet_balance']]);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'کاربر با موفقیت ویرایش شد.',
+            'data' => $user->fresh(['wallet']),
+        ]);
+    }
+
+    /**
+     * Delete user by admin.
+     */
+    public function deleteUser(int $id): JsonResponse
+    {
+        $user = User::findOrFail($id);
+        if ($user->orders()->exists()) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'به دلیل وجود سفارشات فعال، امکان حذف این کاربر وجود ندارد.',
+            ], 422);
+        }
+
+        $user->delete();
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'کاربر با موفقیت حذف شد.',
+        ]);
+    }
+
+    /**
+     * Add a game with platform variants.
+     */
+    public function storeGame(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:255'],
+            'slug' => ['nullable', 'string', 'max:255', 'unique:games,slug'],
+            'genre' => ['required', 'string', 'max:100'],
+            'developer' => ['nullable', 'string', 'max:100'],
+            'description' => ['nullable', 'string'],
+            'age_rating' => ['nullable', 'integer', 'min:3', 'max:21'],
+            'image' => ['nullable'],
+            'is_available' => ['nullable', 'boolean'],
+            'variants' => ['required', 'array', 'min:1'],
+            'variants.*.platform_id' => ['required', 'exists:platforms,id'],
+            'variants.*.price' => ['required', 'numeric', 'min:0'],
+            'variants.*.size' => ['required', 'numeric', 'min:0'],
+            'variants.*.is_available' => ['nullable', 'boolean'],
+        ]);
+
+        $imagePath = null;
+        if ($request->hasFile('image')) {
+            $imagePath = $request->file('image')->store('games', 'public');
+        } elseif (is_string($request->input('image'))) {
+            $imagePath = $request->input('image');
+        }
+
+        $slug = $validated['slug'] ?? Str::slug($validated['title']);
+        if (Game::where('slug', $slug)->exists()) {
+            $slug .= '-' . Str::random(4);
+        }
+
+        $game = Game::create([
+            'title' => $validated['title'],
+            'slug' => $slug,
+            'genre' => $validated['genre'],
+            'developer' => $validated['developer'] ?? 'PlayStation',
+            'description' => $validated['description'] ?? null,
+            'age_rating' => $validated['age_rating'] ?? 16,
+            'image' => $imagePath,
+            'is_available' => $validated['is_available'] ?? true,
+        ]);
+
+        foreach ($validated['variants'] as $v) {
+            $game->variants()->create([
+                'platform_id' => $v['platform_id'],
+                'price' => $v['price'],
+                'size' => $v['size'],
+                'is_available' => $v['is_available'] ?? true,
+            ]);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'بازی با موفقیت ایجاد شد.',
+            'data' => $game->load('variants.platform'),
+        ], 201);
+    }
+
+    /**
+     * Update a game and its platform variants.
+     */
+    public function updateGame(Request $request, int $id): JsonResponse
+    {
+        $game = Game::findOrFail($id);
+
+        $validated = $request->validate([
+            'title' => ['nullable', 'string', 'max:255'],
+            'genre' => ['nullable', 'string', 'max:100'],
+            'developer' => ['nullable', 'string', 'max:100'],
+            'description' => ['nullable', 'string'],
+            'age_rating' => ['nullable', 'integer', 'min:3', 'max:21'],
+            'image' => ['nullable'],
+            'is_available' => ['nullable', 'boolean'],
+            'variants' => ['nullable', 'array'],
+            'variants.*.platform_id' => ['required_with:variants', 'exists:platforms,id'],
+            'variants.*.price' => ['required_with:variants', 'numeric', 'min:0'],
+            'variants.*.size' => ['required_with:variants', 'numeric', 'min:0'],
+            'variants.*.is_available' => ['nullable', 'boolean'],
+        ]);
+
+        if ($request->hasFile('image')) {
+            $game->image = $request->file('image')->store('games', 'public');
+        } elseif (is_string($request->input('image'))) {
+            $game->image = $request->input('image');
+        }
+
+        if (isset($validated['title'])) $game->title = $validated['title'];
+        if (isset($validated['genre'])) $game->genre = $validated['genre'];
+        if (isset($validated['developer'])) $game->developer = $validated['developer'];
+        if (isset($validated['description'])) $game->description = $validated['description'];
+        if (isset($validated['age_rating'])) $game->age_rating = $validated['age_rating'];
+        if (isset($validated['is_available'])) $game->is_available = $validated['is_available'];
+        $game->save();
+
+        if (!empty($validated['variants'])) {
+            foreach ($validated['variants'] as $v) {
+                $game->variants()->updateOrCreate(
+                    ['platform_id' => $v['platform_id']],
+                    [
+                        'price' => $v['price'],
+                        'size' => $v['size'],
+                        'is_available' => $v['is_available'] ?? true,
+                    ]
+                );
+            }
+        }
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'بازی با موفقیت به‌روزرسانی شد.',
+            'data' => $game->fresh(['variants.platform']),
+        ]);
+    }
+
+    /**
+     * Delete a game.
+     */
+    public function deleteGame(int $id): JsonResponse
+    {
+        $game = Game::findOrFail($id);
+
+        if ($game->orderItems()->exists()) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'به دلیل وجود در سفارشات قبلی، امکان حذف این بازی وجود ندارد.',
+            ], 422);
+        }
+
+        $game->variants()->delete();
+        $game->delete();
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'بازی با موفقیت حذف شد.',
+        ]);
+    }
+
+    /**
+     * Get all transactions for admin.
+     */
+    public function transactions(Request $request): JsonResponse
+    {
+        $transactions = \App\Models\WalletTransaction::with('wallet.user')
+            ->latest()
+            ->paginate($request->integer('per_page', 20));
+
+        return response()->json([
+            'ok' => true,
+            'data' => $transactions,
+        ]);
+    }
+
+    /**
+     * List all banners for admin.
+     */
+    public function banners(Request $request): JsonResponse
+    {
+        $banners = \Illuminate\Support\Facades\DB::table('banners')
+            ->orderBy('sort_order')
+            ->latest()
+            ->get();
+
+        return response()->json([
+            'ok' => true,
+            'data' => $banners,
+        ]);
+    }
+
+    /**
+     * Create a banner.
+     */
+    public function storeBanner(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:255'],
+            'image' => ['required'],
+            'link' => ['nullable', 'string'],
+            'sort_order' => ['nullable', 'integer'],
+        ]);
+
+        $imagePath = $request->hasFile('image')
+            ? $request->file('image')->store('banners', 'public')
+            : $validated['image'];
+
+        $id = \Illuminate\Support\Facades\DB::table('banners')->insertGetId([
+            'title' => $validated['title'],
+            'image' => $imagePath,
+            'link' => $validated['link'] ?? null,
+            'sort_order' => $validated['sort_order'] ?? 0,
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'بنر با موفقیت ثبت شد.',
+            'id' => $id,
+        ], 201);
+    }
+
+    /**
+     * Delete a banner.
+     */
+    public function deleteBanner(int $id): JsonResponse
+    {
+        \Illuminate\Support\Facades\DB::table('banners')->where('id', $id)->delete();
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'بنر با موفقیت حذف شد.',
+        ]);
+    }
+
     private function resolveStatusKey(string $status): string
     {
         return match ($status) {
             'در حال بررسی', 'pending' => 'pending',
-            'تایید شده', 'confirmed' => 'confirmed',
-            'در حال پردازش', 'processing' => 'processing',
-            'آماده تحویل', 'ready' => 'ready',
-            'تکمیل شده', 'completed' => 'completed',
-            'لغو شده', 'cancelled' => 'cancelled',
+            'در حال پردازش', 'تایید شده', 'processing', 'confirmed' => 'processing',
+            'تکمیل شده', 'آماده تحویل', 'completed', 'ready' => 'completed',
             default => 'pending',
         };
     }

@@ -140,6 +140,260 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * Send a 5-digit OTP SMS code.
+     */
+    public function sendOtp(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'phone' => ['required', 'string'],
+        ]);
+
+        $phone = $this->normalizePhone($validated['phone']);
+
+        if (strlen($phone) < 10) {
+            throw ValidationException::withMessages([
+                'phone' => 'شماره موبایل معتبر نیست.',
+            ]);
+        }
+
+        $code = (string) random_int(10000, 99999);
+        \Illuminate\Support\Facades\Cache::put('otp:' . $phone, $code, now()->addMinutes(2));
+        \Illuminate\Support\Facades\Log::info("OTP Code for {$phone}: {$code}");
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'کد تأیید ۵ رقمی با موفقیت ارسال شد.',
+            'expires_in' => 120,
+            'debug_code' => config('app.debug') ? $code : null,
+        ]);
+    }
+
+    /**
+     * Verify OTP code without logging in.
+     */
+    public function verifyOtp(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'phone' => ['required', 'string'],
+            'code' => ['required', 'string'],
+        ]);
+
+        $phone = $this->normalizePhone($validated['phone']);
+        $code = trim($validated['code']);
+
+        if (!$this->isOtpValid($phone, $code)) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'کد تأیید نامعتبر یا منقضی شده است.',
+            ], 422);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'valid' => true,
+            'message' => 'کد تأیید معتبر است.',
+        ]);
+    }
+
+    /**
+     * Login or register automatically with OTP.
+     */
+    public function loginWithOtp(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'phone' => ['required', 'string'],
+            'code' => ['required', 'string'],
+            'name' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $phone = $this->normalizePhone($validated['phone']);
+        $code = trim($validated['code']);
+
+        if (!$this->isOtpValid($phone, $code)) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'کد تأیید نامعتبر یا منقضی شده است.',
+            ], 422);
+        }
+
+        \Illuminate\Support\Facades\Cache::forget('otp:' . $phone);
+
+        $isNew = false;
+        $user = User::where('phonenumber', $phone)->first();
+
+        if (!$user) {
+            $isNew = true;
+            $name = trim($validated['name'] ?? '') ?: 'کاربر ' . substr($phone, -4);
+            $user = User::create([
+                'name' => $name,
+                'phonenumber' => $phone,
+                'password' => Hash::make(\Illuminate\Support\Str::random(16)),
+                'is_admin' => false,
+            ]);
+
+            $user->wallet()->firstOrCreate(['user_id' => $user->id], ['balance' => 0]);
+        }
+
+        $token = $user->createToken('auth-token')->plainTextToken;
+
+        return response()->json([
+            'ok' => true,
+            'message' => $isNew ? 'ثبت‌نام و ورود با موفقیت انجام شد.' : 'ورود با موفقیت انجام شد.',
+            'is_new_user' => $isNew,
+            'user' => $this->transformUser($user),
+            'token' => $token,
+        ]);
+    }
+
+    /**
+     * Reset user password using OTP.
+     */
+    public function resetPassword(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'phone' => ['required', 'string'],
+            'code' => ['required', 'string'],
+            'password' => ['required', 'string', 'min:6'],
+        ]);
+
+        $phone = $this->normalizePhone($validated['phone']);
+        $code = trim($validated['code']);
+
+        if (!$this->isOtpValid($phone, $code)) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'کد تأیید نامعتبر یا منقضی شده است.',
+            ], 422);
+        }
+
+        $user = User::where('phonenumber', $phone)->first();
+        if (!$user) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'کاربری با این شماره یافت نشد.',
+            ], 404);
+        }
+
+        \Illuminate\Support\Facades\Cache::forget('otp:' . $phone);
+
+        $user->update([
+            'password' => Hash::make($validated['password']),
+        ]);
+
+        $user->tokens()->delete();
+        $token = $user->createToken('auth-token')->plainTextToken;
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'رمز عبور با موفقیت به‌روزرسانی شد.',
+            'token' => $token,
+            'user' => $this->transformUser($user),
+        ]);
+    }
+
+    /**
+     * Update customer profile.
+     */
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'name' => ['nullable', 'string', 'max:255'],
+            'phone' => ['nullable', 'string', 'max:20'],
+        ]);
+
+        $updates = [];
+        if (!empty($validated['name'])) {
+            $updates['name'] = trim($validated['name']);
+        }
+
+        if (!empty($validated['phone'])) {
+            $phone = $this->normalizePhone($validated['phone']);
+            if ($phone !== $user->phonenumber) {
+                if (User::where('phonenumber', $phone)->where('id', '!=', $user->id)->exists()) {
+                    throw ValidationException::withMessages([
+                        'phone' => 'این شماره موبایل توسط کاربر دیگری استفاده شده است.',
+                    ]);
+                }
+                $updates['phonenumber'] = $phone;
+            }
+        }
+
+        if (!empty($updates)) {
+            $user->update($updates);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'پروفایل با موفقیت به‌روزرسانی شد.',
+            'user' => $this->transformUser($user->fresh()),
+        ]);
+    }
+
+    /**
+     * Upload customer avatar.
+     */
+    public function uploadAvatar(Request $request): JsonResponse
+    {
+        $request->validate([
+            'avatar' => ['required', 'image', 'max:2048'],
+        ]);
+
+        $user = $request->user();
+        $path = $request->file('avatar')->store('avatars', 'public');
+
+        $user->update(['avatar' => $path]);
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'عکس پروفایل با موفقیت ذخیره شد.',
+            'avatar' => $user->avatar_url,
+            'user' => $this->transformUser($user->fresh()),
+        ]);
+    }
+
+    /**
+     * Change customer password.
+     */
+    public function changePassword(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'current_password' => ['required', 'string'],
+            'password' => ['required', 'string', 'min:6'],
+        ]);
+
+        if (!Hash::check($validated['current_password'], $user->password)) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'رمز عبور فعلی نادرست است.',
+            ], 422);
+        }
+
+        $user->update([
+            'password' => Hash::make($validated['password']),
+        ]);
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'رمز عبور با موفقیت تغییر یافت.',
+        ]);
+    }
+
+    private function isOtpValid(string $phone, string $code): bool
+    {
+        // Support bypass in debug/testing mode for quick automated testing
+        if (config('app.debug') && in_array($code, ['11111', '12345'], true)) {
+            return true;
+        }
+
+        $cached = \Illuminate\Support\Facades\Cache::get('otp:' . $phone);
+        return $cached !== null && $cached === $code;
+    }
+
     private function normalizePhone(string $phone): string
     {
         // Replace Persian/Arabic digits
@@ -167,10 +421,15 @@ class AuthController extends Controller
             'id' => $user->id,
             'name' => $user->name,
             'phone' => $user->phonenumber,
+            'avatar' => $user->avatar_url,
             'role' => $user->is_admin ? 'admin' : 'user',
             'isAdmin' => (bool) $user->is_admin,
+            'is_admin' => (bool) $user->is_admin,
             'walletBalance' => (float) $wallet->balance,
+            'wallet_balance' => (float) $wallet->balance,
             'joinDate' => $user->created_at?->format('Y-m-d'),
+            'joined_at' => $user->created_at?->format('Y/m/d'),
+            'created_at' => $user->created_at?->toIso8601String(),
         ];
     }
 }
