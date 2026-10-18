@@ -178,13 +178,26 @@ class OrderController extends Controller
                 'transaction_id' => $payment->transaction_id,
             ]);
 
+            $frontendUrl = rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/');
+            $frontendSuccessUrl = "{$frontendUrl}/my/orders?payment=success";
+            $frontendFailedUrl = "{$frontendUrl}/my/orders?payment=failed";
+
             return response()->json([
                 'ok' => true,
                 'method' => 'gateway',
                 'payment_id' => $payment->id,
                 'transaction_id' => $payment->transaction_id,
                 'amount' => (float) $payment->amount,
+                'action_url' => $callbackUrl,
                 'gateway_url' => $callbackUrl,
+                'callback_url' => $callbackUrl,
+                'frontend_redirect_url' => $frontendSuccessUrl,
+                'redirect_on_success' => '/my/orders?payment=success',
+                'redirect_on_failed' => '/my/orders?payment=failed',
+                'params' => [
+                    'payment' => $payment->id,
+                    'transaction_id' => $payment->transaction_id,
+                ],
                 'message' => 'انتقال به درگاه پرداخت...',
             ]);
         } catch (RuntimeException $e) {
@@ -198,7 +211,7 @@ class OrderController extends Controller
     /**
      * Complete gateway payment verification for an order.
      */
-    public function callback(Request $request): JsonResponse
+    public function callback(Request $request)
     {
         $request->validate([
             'payment' => ['required', 'integer'],
@@ -206,8 +219,12 @@ class OrderController extends Controller
         ]);
 
         $payment = Payment::findOrFail($request->integer('payment'));
+        $frontendUrl = rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/');
 
         if ($payment->user_id !== $request->user()->id) {
+            if (!$request->wantsJson()) {
+                return redirect("{$frontendUrl}/my/orders?payment=failed&error=unauthorized");
+            }
             return response()->json([
                 'ok' => false,
                 'error' => 'دسترسی غیرمجاز.',
@@ -216,11 +233,17 @@ class OrderController extends Controller
 
         if ($payment->status === PaymentStatus::Paid && $payment->order_id) {
             $order = Order::with(['items.game', 'items.gameVariant.platform'])->find($payment->order_id);
+            $redirectUrl = "{$frontendUrl}/my/orders?payment=success&order_id={$payment->order_id}";
+
+            if (!$request->wantsJson()) {
+                return redirect($redirectUrl);
+            }
 
             return response()->json([
                 'ok' => true,
                 'order_id' => $payment->order_id,
                 'order' => $order ? $this->transformOrder($order) : null,
+                'redirect_url' => $redirectUrl,
                 'message' => 'این سفارش قبلاً با موفقیت پرداخت شده است.',
             ]);
         }
@@ -231,75 +254,37 @@ class OrderController extends Controller
                 $request->string('transaction_id')->toString()
             );
 
+            $redirectUrl = "{$frontendUrl}/my/orders?payment=success&order_id={$order->id}";
+
+            if (!$request->wantsJson()) {
+                return redirect($redirectUrl);
+            }
+
             return response()->json([
                 'ok' => true,
                 'order_id' => $order->id,
                 'order' => $this->transformOrder($order->fresh(['items.game', 'items.gameVariant.platform'])),
+                'redirect_url' => $redirectUrl,
                 'message' => 'پرداخت تأیید شد و سفارش شما ثبت گردید.',
             ]);
         } catch (RuntimeException $e) {
+            $redirectUrl = "{$frontendUrl}/my/orders?payment=failed&error=" . urlencode($e->getMessage());
+
+            if (!$request->wantsJson()) {
+                return redirect($redirectUrl);
+            }
+
             return response()->json([
                 'ok' => false,
                 'error' => $e->getMessage(),
+                'redirect_url' => $redirectUrl,
             ], 422);
         }
     }
 
     private function transformOrder(Order $order): array
     {
-        $statusMap = [
-            'pending' => 'در حال بررسی',
-            'processing' => 'در حال پردازش',
-            'completed' => 'تکمیل شده',
-        ];
-
-        $paymentMap = [
-            'unpaid' => 'در انتظار پرداخت',
-            'partial' => 'پرداخت ناقص',
-            'paid' => 'پرداخت شده',
-            'failed' => 'ناموفق',
-        ];
-
-        $installMap = [
-            'pending' => 'در انتظار نصب',
-            'installing' => 'در حال نصب',
-            'installed' => 'نصب شده',
-        ];
-
-        $statusValue = $order->status instanceof \BackedEnum ? $order->status->value : $order->status;
-        $paymentValue = $order->payment_status instanceof \BackedEnum ? $order->payment_status->value : $order->payment_status;
-
-        return [
-            'id' => $order->id,
-            'userId' => $order->user_id,
-            'name' => $order->user?->name,
-            'phone' => $order->user?->phonenumber,
-            'console' => Str::slug($order->console_type),
-            'consoleLabel' => $order->console_type,
-            'consoleNote' => $order->console_note,
-            'amount' => (float) $order->total,
-            'total' => (float) $order->total,
-            'status' => $statusMap[$statusValue] ?? $statusValue,
-            'statusRaw' => $statusValue,
-            'paymentStatus' => $paymentMap[$paymentValue] ?? $paymentValue,
-            'paymentStatusRaw' => $paymentValue,
-            'date' => $order->created_at?->format('Y/m/d'),
-            'time' => $order->created_at?->format('H:i'),
-            'created_at' => $order->created_at,
-            'items' => $order->items->map(fn ($item) => [
-                'id' => $item->id,
-                'productId' => $item->game?->slug ?? (string) $item->game_id,
-                'gameId' => $item->game_id,
-                'variantId' => $item->game_variant_id,
-                'title' => $item->game?->title,
-                'genre' => $item->game?->genre,
-                'price' => (float) $item->price,
-                'quantity' => $item->quantity,
-                'installStatus' => $installMap[$item->installation_status] ?? $item->installation_status,
-                'installStatusRaw' => $item->installation_status,
-                'installed_at' => $item->installed_at?->format('Y-m-d H:i'),
-            ])->values()->all(),
-        ];
+        return $order->toApiArray();
     }
 }
 

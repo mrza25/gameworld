@@ -40,6 +40,10 @@ class Game extends Model
         'age_rating',
         'image',
         'is_available',
+        'modes',
+        'languages',
+        'screenshots',
+        'sales',
         'platform',
         'size',
         'price',
@@ -51,6 +55,10 @@ class Game extends Model
         'release_date' => 'date',
         'age_rating' => 'integer',
         'is_available' => 'boolean',
+        'modes' => 'array',
+        'languages' => 'array',
+        'screenshots' => 'array',
+        'sales' => 'integer',
     ];
 
     protected $attributes = [

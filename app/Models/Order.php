@@ -71,4 +71,63 @@ public function payments(): HasMany
 {
     return $this->hasMany(Payment::class);
 }
+
+    public function toApiArray(): array
+    {
+        $statusMap = [
+            'pending' => 'در حال بررسی',
+            'processing' => 'در حال پردازش',
+            'completed' => 'تکمیل شده',
+        ];
+
+        $paymentMap = [
+            'unpaid' => 'در انتظار پرداخت',
+            'partial' => 'پرداخت ناقص',
+            'paid' => 'پرداخت شده',
+            'failed' => 'ناموفق',
+        ];
+
+        $installMap = [
+            'pending' => 'در انتظار نصب',
+            'installing' => 'در حال نصب',
+            'installed' => 'نصب شده',
+        ];
+
+        $statusValue = $this->status instanceof \BackedEnum ? $this->status->value : $this->status;
+        $paymentValue = $this->payment_status instanceof \BackedEnum ? $this->payment_status->value : $this->payment_status;
+
+        $items = $this->relationLoaded('items') ? $this->items : $this->items()->with(['game', 'gameVariant.platform'])->get();
+
+        return [
+            'id' => $this->id,
+            'userId' => $this->user_id,
+            'name' => $this->user?->name,
+            'phone' => $this->user?->phonenumber,
+            'console' => \Illuminate\Support\Str::slug($this->console_type),
+            'consoleLabel' => $this->console_type,
+            'consoleNote' => $this->console_note,
+            'amount' => (float) $this->total,
+            'total' => (float) $this->total,
+            'status' => $statusMap[$statusValue] ?? $statusValue,
+            'statusRaw' => $statusValue,
+            'paymentStatus' => $paymentMap[$paymentValue] ?? $paymentValue,
+            'paymentStatusRaw' => $paymentValue,
+            'date' => \App\Helpers\Jalali::fromDateTime($this->created_at),
+            'time' => $this->created_at?->format('H:i'),
+            'created_at' => $this->created_at?->toIso8601String(),
+            'items' => $items->map(fn ($item) => [
+                'id' => $item->id,
+                'productId' => $item->game?->slug ?? (string) $item->game_id,
+                'gameId' => $item->game_id,
+                'variantId' => $item->game_variant_id,
+                'title' => $item->game?->title,
+                'genre' => $item->game?->genre,
+                'price' => (float) $item->price,
+                'quantity' => $item->quantity,
+                'installStatus' => $installMap[$item->installation_status] ?? $item->installation_status,
+                'installStatusRaw' => $item->installation_status,
+                'installed_at' => $item->installed_at?->format('Y-m-d H:i'),
+            ])->values()->all(),
+        ];
+    }
 }

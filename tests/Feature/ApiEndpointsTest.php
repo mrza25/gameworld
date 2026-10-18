@@ -76,6 +76,12 @@ class ApiEndpointsTest extends TestCase
                         'genre',
                         'developer',
                         'available',
+                        'rate',
+                        'ratingCount',
+                        'sales',
+                        'modes',
+                        'languages',
+                        'screenshots',
                         'platforms' => [
                             '*' => [
                                 'id',
@@ -232,7 +238,7 @@ class ApiEndpointsTest extends TestCase
                 'method' => 'gateway',
                 'amount' => 120000,
             ])
-            ->assertJsonStructure(['payment_id', 'transaction_id', 'gateway_url']);
+            ->assertJsonStructure(['payment_id', 'transaction_id', 'gateway_url', 'action_url', 'frontend_redirect_url', 'params']);
 
         $paymentId = $response->json('payment_id');
         $transactionId = $response->json('transaction_id');
@@ -498,6 +504,73 @@ class ApiEndpointsTest extends TestCase
         $delUserRes = $this->withToken($adminToken)->deleteJson(route('api.admin.users.delete', $newUserId));
         $delUserRes->assertOk()->assertJson(['ok' => true]);
     }
+
+    public function test_api_register_with_otp_verification(): void
+    {
+        // Send OTP
+        $sendRes = $this->postJson(route('api.auth.send-otp'), ['phone' => '09123334455']);
+        $code = $sendRes->json('debug_code');
+
+        // Invalid code should fail
+        $invalidRes = $this->postJson(route('api.auth.register'), [
+            'name' => 'تست با کد نامعتبر',
+            'phone' => '09123334455',
+            'password' => 'password123',
+            'code' => '99999',
+        ]);
+        $invalidRes->assertStatus(422)->assertJsonValidationErrors(['code']);
+
+        // Verify without consuming
+        $verifyRes = $this->postJson(route('api.auth.verify-otp'), [
+            'phone' => '09123334455',
+            'code' => $code,
+        ]);
+        $verifyRes->assertOk()->assertJson(['valid' => true]);
+
+        // Register with valid code
+        $regRes = $this->postJson(route('api.auth.register'), [
+            'name' => 'کاربر موفق',
+            'phone' => '09123334455',
+            'password' => 'password123',
+            'code' => $code,
+        ]);
+        $regRes->assertCreated()->assertJson(['ok' => true]);
+        $this->assertEquals('1405/07/26', $regRes->json('user.joined_at'));
+    }
+
+    public function test_api_unified_order_format_and_jalali_date(): void
+    {
+        [$platform, $game, $variant] = $this->createPlatformAndGame();
+        $admin = User::factory()->admin()->create();
+        $adminToken = $admin->createToken('admin')->plainTextToken;
+
+        $customer = User::factory()->create();
+        $order = \App\Models\Order::create([
+            'user_id' => $customer->id,
+            'console_type' => 'PS5',
+            'console_note' => 'PS5 Digital',
+            'total' => 120000,
+            'status' => 'pending',
+            'payment_status' => 'paid',
+        ]);
+
+        $res = $this->withToken($adminToken)->getJson(route('api.admin.orders.show', $order->id));
+        $res->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'data' => [
+                    'id' => $order->id,
+                    'userId' => $customer->id,
+                    'console' => 'ps5',
+                    'consoleLabel' => 'PS5',
+                    'consoleNote' => 'PS5 Digital',
+                    'status' => 'در حال بررسی',
+                    'statusRaw' => 'pending',
+                    'date' => '1405/07/26',
+                ],
+            ]);
+    }
 }
+
 
 

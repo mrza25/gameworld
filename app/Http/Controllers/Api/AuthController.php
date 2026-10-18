@@ -42,6 +42,7 @@ class AuthController extends Controller
             'phone' => ['nullable', 'string', 'max:20'],
             'phonenumber' => ['nullable', 'string', 'max:20'],
             'password' => ['required', 'string', 'min:6'],
+            'code' => ['nullable', 'string'],
         ]);
 
         $phone = $this->normalizePhone($validated['phone'] ?? $validated['phonenumber'] ?? '');
@@ -50,6 +51,16 @@ class AuthController extends Controller
             throw ValidationException::withMessages([
                 'phone' => 'شماره موبایل الزامی است.',
             ]);
+        }
+
+        if ($request->filled('code')) {
+            $code = trim($validated['code']);
+            if (!$this->isOtpValid($phone, $code)) {
+                throw ValidationException::withMessages([
+                    'code' => 'کد تأیید نامعتبر یا منقضی شده است.',
+                ]);
+            }
+            \Illuminate\Support\Facades\Cache::forget('otp:' . $phone);
         }
 
         if (User::where('phonenumber', $phone)->exists()) {
@@ -428,7 +439,7 @@ class AuthController extends Controller
             'walletBalance' => (float) $wallet->balance,
             'wallet_balance' => (float) $wallet->balance,
             'joinDate' => $user->created_at?->format('Y-m-d'),
-            'joined_at' => $user->created_at?->format('Y/m/d'),
+            'joined_at' => \App\Helpers\Jalali::fromDateTime($user->created_at),
             'created_at' => $user->created_at?->toIso8601String(),
         ];
     }

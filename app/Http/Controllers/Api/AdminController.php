@@ -31,10 +31,11 @@ class AdminController extends Controller
             'completed_orders' => Order::where('status', OrderStatus::Completed)->count(),
         ];
 
-        $recentOrders = Order::with(['user', 'items.game'])
+        $recentOrders = Order::with(['user', 'items.game', 'items.gameVariant.platform'])
             ->latest()
             ->take(6)
-            ->get();
+            ->get()
+            ->map(fn (Order $order) => $order->toApiArray());
 
         return response()->json([
             'ok' => true,
@@ -63,6 +64,7 @@ class AdminController extends Controller
         }
 
         $orders = $query->paginate($request->integer('per_page', 15));
+        $orders->getCollection()->transform(fn (Order $order) => $order->toApiArray());
 
         return response()->json([
             'ok' => true,
@@ -80,7 +82,7 @@ class AdminController extends Controller
 
         return response()->json([
             'ok' => true,
-            'data' => $order,
+            'data' => $order->toApiArray(),
         ]);
     }
 

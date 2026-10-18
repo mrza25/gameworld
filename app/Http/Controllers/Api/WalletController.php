@@ -36,7 +36,7 @@ class WalletController extends Controller
                 'balanceAfter' => (float) $t->balance_after,
                 'reference' => $t->reference,
                 'description' => $t->description,
-                'date' => $t->created_at?->format('Y-m-d H:i'),
+                'date' => \App\Helpers\Jalali::fromDateTime($t->created_at, 'Y/m/d H:i'),
                 'created_at' => $t->created_at,
             ]);
 
@@ -58,6 +58,17 @@ class WalletController extends Controller
             ->latest()
             ->paginate($request->integer('per_page', 15));
 
+        $transactions->getCollection()->transform(fn ($t) => [
+            'id' => $t->id,
+            'type' => $t->type,
+            'amount' => (float) $t->amount,
+            'balanceAfter' => (float) $t->balance_after,
+            'reference' => $t->reference,
+            'description' => $t->description,
+            'date' => \App\Helpers\Jalali::fromDateTime($t->created_at, 'Y/m/d H:i'),
+            'created_at' => $t->created_at,
+        ]);
+
         return response()->json([
             'ok' => true,
             'data' => $transactions,
@@ -78,7 +89,7 @@ class WalletController extends Controller
             (float) $validated['amount']
         );
 
-        // Callback URL for frontend
+        $frontendUrl = rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/');
         $callbackUrl = route('api.wallet.callback', [
             'payment' => $payment->id,
             'transaction_id' => $payment->transaction_id,
@@ -89,7 +100,16 @@ class WalletController extends Controller
             'payment_id' => $payment->id,
             'amount' => (float) $payment->amount,
             'transaction_id' => $payment->transaction_id,
+            'action_url' => $callbackUrl,
             'gateway_url' => $callbackUrl,
+            'callback_url' => $callbackUrl,
+            'frontend_redirect_url' => "{$frontendUrl}/my/wallet?payment=success",
+            'redirect_on_success' => '/my/wallet?payment=success',
+            'redirect_on_failed' => '/my/wallet?payment=failed',
+            'params' => [
+                'payment' => $payment->id,
+                'transaction_id' => $payment->transaction_id,
+            ],
             'message' => 'درگاه پرداخت آماده است.',
         ]);
     }
@@ -97,7 +117,7 @@ class WalletController extends Controller
     /**
      * Complete wallet top-up callback.
      */
-    public function callback(Request $request): JsonResponse
+    public function callback(Request $request)
     {
         $request->validate([
             'payment' => ['required', 'integer'],
@@ -105,8 +125,12 @@ class WalletController extends Controller
         ]);
 
         $payment = Payment::findOrFail($request->integer('payment'));
+        $frontendUrl = rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/');
 
         if ($payment->user_id !== $request->user()->id) {
+            if (!$request->wantsJson()) {
+                return redirect("{$frontendUrl}/my/wallet?payment=failed&error=unauthorized");
+            }
             return response()->json([
                 'ok' => false,
                 'error' => 'دسترسی غیرمجاز.',
@@ -114,10 +138,15 @@ class WalletController extends Controller
         }
 
         if ($payment->status === PaymentStatus::Paid) {
+            $redirectUrl = "{$frontendUrl}/my/wallet?payment=success";
+            if (!$request->wantsJson()) {
+                return redirect($redirectUrl);
+            }
             return response()->json([
                 'ok' => true,
                 'message' => 'این تراکنش قبلاً با موفقیت انجام شده است.',
                 'balance' => (float) $request->user()->wallet->balance,
+                'redirect_url' => $redirectUrl,
             ]);
         }
 
@@ -127,16 +156,29 @@ class WalletController extends Controller
                 $request->string('transaction_id')->toString()
             );
         } catch (RuntimeException $e) {
+            $redirectUrl = "{$frontendUrl}/my/wallet?payment=failed&error=" . urlencode($e->getMessage());
+            if (!$request->wantsJson()) {
+                return redirect($redirectUrl);
+            }
             return response()->json([
                 'ok' => false,
                 'error' => $e->getMessage(),
+                'redirect_url' => $redirectUrl,
             ], 422);
+        }
+
+        $balance = (float) $request->user()->fresh()->wallet->balance;
+        $redirectUrl = "{$frontendUrl}/my/wallet?payment=success&balance={$balance}";
+
+        if (!$request->wantsJson()) {
+            return redirect($redirectUrl);
         }
 
         return response()->json([
             'ok' => true,
             'message' => 'کیف پول شما با موفقیت شارژ شد.',
-            'balance' => (float) $request->user()->fresh()->wallet->balance,
+            'balance' => $balance,
+            'redirect_url' => $redirectUrl,
         ]);
     }
 }
