@@ -265,6 +265,39 @@ class ApiEndpointsTest extends TestCase
         ]);
     }
 
+    public function test_api_order_checkout_accepts_camelcase_and_persian_payment_method(): void
+    {
+        [$platform, $game, $variant] = $this->createPlatformAndGame();
+
+        $user = User::factory()->create();
+        $user->wallet()->create(['balance' => 500000]);
+        $token = $user->createToken('test')->plainTextToken;
+
+        // 1. camelCase paymentMethod and consoleType
+        $res1 = $this->withToken($token)->postJson(route('api.orders.checkout'), [
+            'consoleType' => 'ps5',
+            'paymentMethod' => 'wallet',
+            'variants' => [$variant->id],
+        ]);
+        $res1->assertCreated()->assertJson(['ok' => true, 'method' => 'wallet']);
+
+        // 2. Persian label "کیف پول"
+        $res2 = $this->withToken($token)->postJson(route('api.orders.checkout'), [
+            'console' => 'ps5',
+            'paymentMethod' => 'کیف پول',
+            'variants' => [$variant->id],
+        ]);
+        $res2->assertCreated()->assertJson(['ok' => true, 'method' => 'wallet']);
+
+        // 3. Persian label "درگاه بانکی"
+        $res3 = $this->withToken($token)->postJson(route('api.orders.checkout'), [
+            'console' => 'ps5',
+            'paymentMethod' => 'درگاه بانکی',
+            'variants' => [$variant->id],
+        ]);
+        $res3->assertOk()->assertJson(['ok' => true, 'method' => 'gateway']);
+    }
+
     public function test_api_admin_dashboard_and_orders_management(): void
     {
         [$platform, $game, $variant] = $this->createPlatformAndGame();
