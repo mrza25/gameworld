@@ -357,7 +357,18 @@ class CheckoutService
         $items = [];
 
         foreach ($variants as $variant) {
-            if ($variant->platform->slug !== $platformSlug) {
+            $variantSlug = $variant->platform?->slug ?? '';
+            $variantName = $variant->platform?->name ?? '';
+
+            $isMatch = ($variantSlug === $platformSlug)
+                || ($variantName === $consoleType)
+                || ($variantSlug === $consoleType)
+                || (Str::slug($variantName) === $platformSlug)
+                || ($variantSlug === 'ps5' && in_array($platformSlug, ['ps5', 'playstation-5'], true))
+                || ($variantSlug === 'ps4' && in_array($platformSlug, ['ps4', 'playstation-4'], true))
+                || ($platformSlug === 'other' || $consoleType === 'other' || $consoleType === 'سایر کنسول‌ها');
+
+            if (!$isMatch) {
                 throw new RuntimeException(
                     'A selected game version does not match your console.'
                 );
