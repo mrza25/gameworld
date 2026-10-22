@@ -535,7 +535,7 @@ class ApiEndpointsTest extends TestCase
             'code' => $code,
         ]);
         $regRes->assertCreated()->assertJson(['ok' => true]);
-        $this->assertEquals('1405/07/26', $regRes->json('user.joined_at'));
+        $this->assertEquals(\App\Helpers\Jalali::fromDateTime(now()), $regRes->json('user.joined_at'));
     }
 
     public function test_api_unified_order_format_and_jalali_date(): void
@@ -566,7 +566,7 @@ class ApiEndpointsTest extends TestCase
                     'consoleNote' => 'PS5 Digital',
                     'status' => 'در حال بررسی',
                     'statusRaw' => 'pending',
-                    'date' => '1405/07/26',
+                    'date' => \App\Helpers\Jalali::fromDateTime(now()),
                 ],
             ]);
     }
@@ -628,6 +628,77 @@ class ApiEndpointsTest extends TestCase
             ->postJson(route('api.auth.logout'));
 
         $logoutRes->assertOk();
+    }
+
+    public function test_api_new_features_developer_release_date_screenshots_persian_genre_ratings_and_otp(): void
+    {
+        [$platform, $game, $variant] = $this->createPlatformAndGame();
+        $game->update([
+            'developer' => 'FromSoftware',
+            'release_date' => '2022-02-25',
+            'genre' => 'RPG',
+            'screenshots' => ['storage/screenshots/gow-1.jpg'],
+        ]);
+
+        // 1. Genres endpoint
+        $genresRes = $this->getJson(route('api.genres'));
+        $genresRes->assertOk()
+            ->assertJson(['ok' => true])
+            ->assertJsonFragment(['name' => 'اکشن'])
+            ->assertJsonFragment(['name' => 'نقش‌آفرینی']);
+
+        // 2. Product returns developer, releaseDate, Persian genre, screenshots
+        $productRes = $this->getJson(route('api.products.show', $game->slug));
+        $productRes->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'data' => [
+                    'id' => $game->id,
+                    'genre' => 'نقش‌آفرینی',
+                    'developer' => 'FromSoftware',
+                    'releaseDate' => '2022-02-25',
+                ],
+            ]);
+        $this->assertNotEmpty($productRes->json('data.screenshots'));
+
+        // 3. Unauthenticated rating is rejected
+        $guestRate = $this->postJson(route('api.products.rate', $game->slug), [
+            'rating' => 5,
+        ]);
+        $guestRate->assertUnauthorized();
+
+        // 4. Authenticated user can rate game via ID or slug
+        $user = User::factory()->create();
+        $token = $user->createToken('rating-user')->plainTextToken;
+
+        $authRate = $this->withToken($token)->postJson(route('api.products.rate', $game->slug), [
+            'rate' => 5,
+            'comment' => 'عالی بود',
+        ]);
+        $authRate->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'userRating' => 5,
+                'rate' => 5,
+            ]);
+
+        // 5. Subsequent game view shows current user's rating
+        $viewAgain = $this->withToken($token)->getJson(route('api.products.show', $game->slug));
+        $this->assertEquals(5, $viewAgain->json('data.userRating'));
+
+        // 6. OTP login with Persian digits
+        \Illuminate\Support\Facades\Cache::put('otp:09121112233', '54321', now()->addMinutes(2));
+        $otpRes = $this->postJson(route('api.auth.login-with-otp'), [
+            'phone' => '۰۹۱۲۱۱۱۲۲۳۳',
+            'code' => '۵۴۳۲۱',
+        ]);
+        $otpRes->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'is_new_user' => true,
+            ])
+            ->assertCookie('gw_token');
+        $this->assertDatabaseHas('users', ['phonenumber' => '09121112233']);
     }
 }
 

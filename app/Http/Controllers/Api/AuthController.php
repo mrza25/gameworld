@@ -146,11 +146,15 @@ class AuthController extends Controller
      */
     public function sendOtp(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'phone' => ['required', 'string'],
-        ]);
+        $phoneInput = $request->input('phone') ?? $request->input('phonenumber') ?? $request->input('mobile');
 
-        $phone = $this->normalizePhone($validated['phone']);
+        if (!$phoneInput) {
+            throw ValidationException::withMessages([
+                'phone' => 'شماره موبایل الزامی است.',
+            ]);
+        }
+
+        $phone = $this->normalizePhone((string) $phoneInput);
 
         if (strlen($phone) < 10) {
             throw ValidationException::withMessages([
@@ -166,6 +170,7 @@ class AuthController extends Controller
             'ok' => true,
             'message' => 'کد تأیید ۵ رقمی با موفقیت ارسال شد.',
             'expires_in' => 120,
+            'code' => config('app.debug') ? $code : null,
             'debug_code' => config('app.debug') ? $code : null,
         ]);
     }
@@ -175,17 +180,22 @@ class AuthController extends Controller
      */
     public function verifyOtp(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'phone' => ['required', 'string'],
-            'code' => ['required', 'string'],
-        ]);
+        $phoneInput = $request->input('phone') ?? $request->input('phonenumber') ?? $request->input('mobile');
+        $codeInput = $request->input('code') ?? $request->input('otp');
 
-        $phone = $this->normalizePhone($validated['phone']);
-        $code = trim($validated['code']);
+        if (!$phoneInput || !$codeInput) {
+            throw ValidationException::withMessages([
+                'phone' => 'شماره موبایل و کد تأیید الزامی هستند.',
+            ]);
+        }
+
+        $phone = $this->normalizePhone((string) $phoneInput);
+        $code = trim($this->normalizeDigits((string) $codeInput));
 
         if (!$this->isOtpValid($phone, $code)) {
             return response()->json([
                 'ok' => false,
+                'message' => 'کد تأیید نامعتبر یا منقضی شده است.',
                 'error' => 'کد تأیید نامعتبر یا منقضی شده است.',
             ], 422);
         }
@@ -202,18 +212,22 @@ class AuthController extends Controller
      */
     public function loginWithOtp(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'phone' => ['required', 'string'],
-            'code' => ['required', 'string'],
-            'name' => ['nullable', 'string', 'max:255'],
-        ]);
+        $phoneInput = $request->input('phone') ?? $request->input('phonenumber') ?? $request->input('mobile');
+        $codeInput = $request->input('code') ?? $request->input('otp');
 
-        $phone = $this->normalizePhone($validated['phone']);
-        $code = trim($validated['code']);
+        if (!$phoneInput || !$codeInput) {
+            throw ValidationException::withMessages([
+                'phone' => 'شماره موبایل و کد تأیید الزامی است.',
+            ]);
+        }
+
+        $phone = $this->normalizePhone((string) $phoneInput);
+        $code = trim($this->normalizeDigits((string) $codeInput));
 
         if (!$this->isOtpValid($phone, $code)) {
             return response()->json([
                 'ok' => false,
+                'message' => 'کد تأیید نامعتبر یا منقضی شده است.',
                 'error' => 'کد تأیید نامعتبر یا منقضی شده است.',
             ], 422);
         }
@@ -225,7 +239,8 @@ class AuthController extends Controller
 
         if (!$user) {
             $isNew = true;
-            $name = trim($validated['name'] ?? '') ?: 'کاربر ' . substr($phone, -4);
+            $nameInput = $request->input('name') ?? $request->input('fullName');
+            $name = trim((string) $nameInput) ?: 'کاربر ' . substr($phone, -4);
             $user = User::create([
                 'name' => $name,
                 'phonenumber' => $phone,
@@ -243,7 +258,10 @@ class AuthController extends Controller
             $token,
             $isNew ? 'ثبت‌نام و ورود با موفقیت انجام شد.' : 'ورود با موفقیت انجام شد.',
             200,
-            ['is_new_user' => $isNew]
+            [
+                'is_new_user' => $isNew,
+                'isNewUser' => $isNew,
+            ]
         );
     }
 
@@ -388,6 +406,16 @@ class AuthController extends Controller
 
         $cached = \Illuminate\Support\Facades\Cache::get('otp:' . $phone);
         return $cached !== null && $cached === $code;
+    }
+
+    private function normalizeDigits(string $str): string
+    {
+        $fa = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+        $ar = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+        $en = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+
+        $str = str_replace($fa, $en, $str);
+        return str_replace($ar, $en, $str);
     }
 
     private function normalizePhone(string $phone): string

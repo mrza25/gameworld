@@ -85,16 +85,27 @@ class CommonController extends Controller
     }
 
     /**
-     * Submit rating and review for a game.
+     * Submit rating and review for a game by an authenticated user.
      */
-    public function rateGame(Request $request, int $id): JsonResponse
+    public function rateGame(Request $request, string $id): JsonResponse
     {
-        $game = Game::findOrFail($id);
+        $game = Game::where('id', is_numeric($id) ? (int) $id : 0)
+            ->orWhere('slug', $id)
+            ->firstOrFail();
 
-        $validated = $request->validate([
-            'rating' => ['required', 'integer', 'min:1', 'max:5'],
-            'comment' => ['nullable', 'string', 'max:1000'],
-        ]);
+        $ratingVal = $request->input('rating') ?? $request->input('rate') ?? $request->input('score');
+
+        if (!$ratingVal || !is_numeric($ratingVal) || $ratingVal < 1 || $ratingVal > 5) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'امتیاز باید عددی بین ۱ تا ۵ باشد.',
+                'errors' => [
+                    'rating' => ['امتیاز باید عددی بین ۱ تا ۵ باشد.'],
+                ],
+            ], 422);
+        }
+
+        $ratingInt = (int) round((float) $ratingVal);
 
         DB::table('game_ratings')->updateOrInsert(
             [
@@ -102,8 +113,8 @@ class CommonController extends Controller
                 'user_id' => $request->user()->id,
             ],
             [
-                'rating' => $validated['rating'],
-                'comment' => $validated['comment'] ?? null,
+                'rating' => $ratingInt,
+                'comment' => $request->input('comment'),
                 'updated_at' => now(),
                 'created_at' => now(),
             ]
@@ -112,11 +123,19 @@ class CommonController extends Controller
         $avgRating = DB::table('game_ratings')->where('game_id', $game->id)->avg('rating');
         $ratingCount = DB::table('game_ratings')->where('game_id', $game->id)->count();
 
+        $rate = round((float) $avgRating, 1);
+
         return response()->json([
             'ok' => true,
             'message' => 'امتیاز شما با موفقیت ثبت شد.',
-            'average_rating' => round((float) $avgRating, 1),
+            'userRating' => $ratingInt,
+            'user_rating' => $ratingInt,
+            'rate' => $rate,
+            'average_rating' => $rate,
+            'ratingCount' => $ratingCount,
             'rating_count' => $ratingCount,
+            'game_id' => $game->id,
+            'game_title' => $game->title,
         ]);
     }
 }

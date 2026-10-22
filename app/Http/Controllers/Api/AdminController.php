@@ -287,9 +287,12 @@ class AdminController extends Controller
             'slug' => ['nullable', 'string', 'max:255', 'unique:games,slug'],
             'genre' => ['required', 'string', 'max:100'],
             'developer' => ['nullable', 'string', 'max:100'],
+            'release_date' => ['nullable', 'date'],
+            'releaseDate' => ['nullable', 'date'],
             'description' => ['nullable', 'string'],
             'age_rating' => ['nullable', 'integer', 'min:3', 'max:21'],
             'image' => ['nullable'],
+            'screenshots' => ['nullable'],
             'is_available' => ['nullable', 'boolean'],
             'variants' => ['required', 'array', 'min:1'],
             'variants.*.platform_id' => ['required', 'exists:platforms,id'],
@@ -305,19 +308,32 @@ class AdminController extends Controller
             $imagePath = $request->input('image');
         }
 
+        $screenshots = [];
+        if ($request->hasFile('screenshots')) {
+            foreach ($request->file('screenshots') as $file) {
+                $screenshots[] = $file->store('screenshots', 'public');
+            }
+        } elseif (is_array($request->input('screenshots'))) {
+            $screenshots = $request->input('screenshots');
+        }
+
         $slug = $validated['slug'] ?? Str::slug($validated['title']);
         if (Game::where('slug', $slug)->exists()) {
             $slug .= '-' . Str::random(4);
         }
 
+        $releaseDate = $validated['release_date'] ?? $validated['releaseDate'] ?? now()->format('Y-m-d');
+
         $game = Game::create([
             'title' => $validated['title'],
             'slug' => $slug,
             'genre' => $validated['genre'],
-            'developer' => $validated['developer'] ?? 'PlayStation',
+            'developer' => $validated['developer'] ?? 'PlayStation Studios',
+            'release_date' => $releaseDate,
             'description' => $validated['description'] ?? null,
             'age_rating' => $validated['age_rating'] ?? 16,
             'image' => $imagePath,
+            'screenshots' => $screenshots,
             'is_available' => $validated['is_available'] ?? true,
         ]);
 
@@ -348,9 +364,12 @@ class AdminController extends Controller
             'title' => ['nullable', 'string', 'max:255'],
             'genre' => ['nullable', 'string', 'max:100'],
             'developer' => ['nullable', 'string', 'max:100'],
+            'release_date' => ['nullable', 'date'],
+            'releaseDate' => ['nullable', 'date'],
             'description' => ['nullable', 'string'],
             'age_rating' => ['nullable', 'integer', 'min:3', 'max:21'],
             'image' => ['nullable'],
+            'screenshots' => ['nullable'],
             'is_available' => ['nullable', 'boolean'],
             'variants' => ['nullable', 'array'],
             'variants.*.platform_id' => ['required_with:variants', 'exists:platforms,id'],
@@ -365,9 +384,21 @@ class AdminController extends Controller
             $game->image = $request->input('image');
         }
 
+        if ($request->hasFile('screenshots')) {
+            $newScreens = [];
+            foreach ($request->file('screenshots') as $file) {
+                $newScreens[] = $file->store('screenshots', 'public');
+            }
+            $game->screenshots = array_merge((array) ($game->screenshots ?? []), $newScreens);
+        } elseif (is_array($request->input('screenshots'))) {
+            $game->screenshots = $request->input('screenshots');
+        }
+
         if (isset($validated['title'])) $game->title = $validated['title'];
         if (isset($validated['genre'])) $game->genre = $validated['genre'];
         if (isset($validated['developer'])) $game->developer = $validated['developer'];
+        if (isset($validated['release_date'])) $game->release_date = $validated['release_date'];
+        if (isset($validated['releaseDate'])) $game->release_date = $validated['releaseDate'];
         if (isset($validated['description'])) $game->description = $validated['description'];
         if (isset($validated['age_rating'])) $game->age_rating = $validated['age_rating'];
         if (isset($validated['is_available'])) $game->is_available = $validated['is_available'];
@@ -390,6 +421,32 @@ class AdminController extends Controller
             'ok' => true,
             'message' => 'بازی با موفقیت به‌روزرسانی شد.',
             'data' => $game->fresh(['variants.platform']),
+        ]);
+    }
+
+    /**
+     * Upload screenshots for a game.
+     */
+    public function uploadScreenshots(Request $request, int $id): JsonResponse
+    {
+        $game = Game::findOrFail($id);
+
+        $request->validate([
+            'screenshots' => ['required', 'array'],
+            'screenshots.*' => ['image', 'max:4096'],
+        ]);
+
+        $currentScreenshots = (array) ($game->screenshots ?? []);
+        foreach ($request->file('screenshots') as $file) {
+            $currentScreenshots[] = $file->store('screenshots', 'public');
+        }
+
+        $game->update(['screenshots' => $currentScreenshots]);
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'اسکرین‌شات‌ها با موفقیت ذخیره شدند.',
+            'screenshots' => array_map(fn ($p) => url('storage/' . ltrim($p, '/')), $currentScreenshots),
         ]);
     }
 

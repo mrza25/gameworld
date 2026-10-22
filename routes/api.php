@@ -44,6 +44,7 @@ Route::get('/health', function () {
 |--------------------------------------------------------------------------
 */
 Route::get('/consoles', [ProductController::class, 'consoles'])->name('api.consoles');
+Route::get('/genres', [ProductController::class, 'genres'])->name('api.genres');
 Route::get('/products', [ProductController::class, 'index'])->name('api.products.index');
 Route::get('/products/{slug}', [ProductController::class, 'show'])->name('api.products.show');
 Route::get('/games', [ProductController::class, 'index'])->name('api.games.index');
@@ -62,8 +63,12 @@ Route::prefix('auth')->group(function () {
 
     // OTP endpoints
     Route::post('/send-otp', [AuthController::class, 'sendOtp'])->middleware('throttle:auth')->name('api.auth.send-otp');
+    Route::post('/otp/send', [AuthController::class, 'sendOtp'])->middleware('throttle:auth');
     Route::post('/verify-otp', [AuthController::class, 'verifyOtp'])->middleware('throttle:auth')->name('api.auth.verify-otp');
+    Route::post('/otp/verify', [AuthController::class, 'verifyOtp'])->middleware('throttle:auth');
     Route::post('/login-with-otp', [AuthController::class, 'loginWithOtp'])->middleware('throttle:auth')->name('api.auth.login-with-otp');
+    Route::post('/otp-login', [AuthController::class, 'loginWithOtp'])->middleware('throttle:auth');
+    Route::post('/login-otp', [AuthController::class, 'loginWithOtp'])->middleware('throttle:auth');
     Route::post('/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:auth')->name('api.auth.reset-password');
 
     Route::middleware('auth:sanctum')->group(function () {
@@ -97,6 +102,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Game Ratings & Reviews
     Route::post('/games/{id}/rate', [CommonController::class, 'rateGame'])->name('api.games.rate');
+    Route::post('/products/{id}/rate', [CommonController::class, 'rateGame'])->name('api.products.rate');
 
     // Notifications
     Route::get('/notifications', [CommonController::class, 'notifications'])->name('api.notifications.index');
@@ -131,6 +137,7 @@ Route::middleware(['auth:sanctum', AdminMiddleware::class])
         // Games Management
         Route::post('/games', [AdminController::class, 'storeGame'])->name('api.admin.games.store');
         Route::patch('/games/{id}', [AdminController::class, 'updateGame'])->name('api.admin.games.update');
+        Route::post('/games/{id}/screenshots', [AdminController::class, 'uploadScreenshots'])->name('api.admin.games.screenshots');
         Route::delete('/games/{id}', [AdminController::class, 'deleteGame'])->name('api.admin.games.delete');
 
         // Financial & Banners
