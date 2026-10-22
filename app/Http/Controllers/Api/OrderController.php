@@ -64,53 +64,10 @@ class OrderController extends Controller
      */
     public function checkout(Request $request): JsonResponse
     {
-        // 1. Resolve and normalize payment method (accepts method, paymentMethod, payment_method, etc.)
-        $rawMethod = $request->input('method')
-            ?? $request->input('paymentMethod')
-            ?? $request->input('payment_method')
-            ?? $request->input('paymentType')
-            ?? $request->input('payment_type');
-
-        $method = 'wallet';
-        if ($rawMethod !== null && $rawMethod !== '') {
-            $rawMethodLower = strtolower(trim((string) $rawMethod));
-            if (in_array($rawMethodLower, ['gateway', 'online', 'bank', 'درگاه', 'درگاه بانکی', 'درگاه پرداخت', 'zarinpal'], true)) {
-                $method = 'gateway';
-            } elseif (in_array($rawMethodLower, ['wallet', 'کیف پول', 'کیف‌پول', 'balance', 'credit'], true)) {
-                $method = 'wallet';
-            } else {
-                $method = $rawMethodLower;
-            }
-        }
-
-        // 2. Resolve and normalize console key
-        if (!$request->filled('console')) {
-            $consoleInput = $request->input('consoleType')
-                ?? $request->input('console_type')
-                ?? $request->input('platform');
-            if ($consoleInput) {
-                $request->merge(['console' => $consoleInput]);
-            }
-        }
-
-        // 3. Resolve console note key
-        if (!$request->filled('console_note')) {
-            $note = $request->input('consoleNote') ?? $request->input('note');
-            if ($note) {
-                $request->merge(['console_note' => $note]);
-            }
-        }
-
-        $request->merge([
-            'method' => $method,
-            'paymentMethod' => $method,
-            'payment_method' => $method,
-        ]);
-
         $validated = $request->validate([
             'console' => ['required', 'string'],
             'console_note' => ['nullable', 'string', 'max:255'],
-            'method' => ['required', 'in:wallet,gateway'],
+            'method' => ['required', 'string', 'in:wallet,gateway'],
             'variants' => ['nullable', 'array', 'min:1'],
             'variants.*' => ['integer', 'exists:game_variants,id'],
             'items' => ['nullable', 'array', 'min:1'],

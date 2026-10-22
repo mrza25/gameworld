@@ -265,7 +265,7 @@ class ApiEndpointsTest extends TestCase
         ]);
     }
 
-    public function test_api_order_checkout_accepts_camelcase_and_persian_payment_method(): void
+    public function test_api_order_checkout_validates_standard_method_and_persian_messages(): void
     {
         [$platform, $game, $variant] = $this->createPlatformAndGame();
 
@@ -273,29 +273,41 @@ class ApiEndpointsTest extends TestCase
         $user->wallet()->create(['balance' => 500000]);
         $token = $user->createToken('test')->plainTextToken;
 
-        // 1. camelCase paymentMethod and consoleType
+        // 1. Missing method returns 422 with Persian message
         $res1 = $this->withToken($token)->postJson(route('api.orders.checkout'), [
-            'consoleType' => 'ps5',
-            'paymentMethod' => 'wallet',
+            'console' => 'ps5',
             'variants' => [$variant->id],
         ]);
-        $res1->assertCreated()->assertJson(['ok' => true, 'method' => 'wallet']);
+        $res1->assertStatus(422)
+            ->assertJsonValidationErrors(['method'])
+            ->assertJsonFragment(['method' => ['انتخاب روش پرداخت الزامی است.']]);
 
-        // 2. Persian label "کیف پول"
+        // 2. Invalid method returns 422 with Persian message
         $res2 = $this->withToken($token)->postJson(route('api.orders.checkout'), [
             'console' => 'ps5',
-            'paymentMethod' => 'کیف پول',
+            'method' => 'invalid_method',
             'variants' => [$variant->id],
         ]);
-        $res2->assertCreated()->assertJson(['ok' => true, 'method' => 'wallet']);
+        $res2->assertStatus(422)
+            ->assertJsonValidationErrors(['method'])
+            ->assertJsonFragment(['method' => ['روش پرداخت باید کیف پول یا درگاه بانکی باشد.']]);
 
-        // 3. Persian label "درگاه بانکی"
+        // 3. Missing console returns 422 with Persian message
         $res3 = $this->withToken($token)->postJson(route('api.orders.checkout'), [
-            'console' => 'ps5',
-            'paymentMethod' => 'درگاه بانکی',
+            'method' => 'wallet',
             'variants' => [$variant->id],
         ]);
-        $res3->assertOk()->assertJson(['ok' => true, 'method' => 'gateway']);
+        $res3->assertStatus(422)
+            ->assertJsonValidationErrors(['console'])
+            ->assertJsonFragment(['console' => ['انتخاب کنسول الزامی است.']]);
+
+        // 4. Standard valid payload succeeds cleanly
+        $res4 = $this->withToken($token)->postJson(route('api.orders.checkout'), [
+            'console' => 'ps5',
+            'method' => 'wallet',
+            'variants' => [$variant->id],
+        ]);
+        $res4->assertCreated()->assertJson(['ok' => true, 'method' => 'wallet']);
     }
 
     public function test_api_admin_dashboard_and_orders_management(): void
