@@ -75,14 +75,18 @@ class AdminController extends Controller
     /**
      * Get single order details for admin.
      */
-    public function orderDetail(int $id): JsonResponse
+    public function orderDetail(int|string $id): JsonResponse
     {
+        $cleanId = (int) ltrim((string) $id, '#');
         $order = Order::with(['user', 'items.game', 'items.gameVariant.platform', 'payments'])
-            ->findOrFail($id);
+            ->findOrFail($cleanId);
+
+        $orderData = $order->toApiArray();
 
         return response()->json([
             'ok' => true,
-            'data' => $order->toApiArray(),
+            'data' => $orderData,
+            'order' => $orderData,
         ]);
     }
 

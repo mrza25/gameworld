@@ -98,12 +98,18 @@ public function payments(): HasMany
 
         $items = $this->relationLoaded('items') ? $this->items : $this->items()->with(['game', 'gameVariant.platform'])->get();
 
+        $platform = \App\Models\Platform::where('name', $this->console_type)
+            ->orWhere('slug', $this->console_type)
+            ->first();
+        $consoleSlug = $platform?->slug ?? \Illuminate\Support\Str::slug($this->console_type);
+
         return [
             'id' => $this->id,
+            'orderId' => '#' . $this->id,
             'userId' => $this->user_id,
             'name' => $this->user?->name,
             'phone' => $this->user?->phonenumber,
-            'console' => \Illuminate\Support\Str::slug($this->console_type),
+            'console' => $consoleSlug,
             'consoleLabel' => $this->console_type,
             'consoleNote' => $this->console_note,
             'amount' => (float) $this->total,

@@ -43,19 +43,23 @@ class OrderController extends Controller
     /**
      * Get details of a single customer order.
      */
-    public function show(Request $request, int $id): JsonResponse
+    public function show(Request $request, int|string $id): JsonResponse
     {
+        $cleanId = (int) ltrim((string) $id, '#');
         $query = $request->user()->is_admin
             ? Order::query()
             : $request->user()->orders();
 
         $order = $query
             ->with(['items.game', 'items.gameVariant.platform'])
-            ->findOrFail($id);
+            ->findOrFail($cleanId);
+
+        $orderData = $this->transformOrder($order);
 
         return response()->json([
             'ok' => true,
-            'data' => $this->transformOrder($order),
+            'data' => $orderData,
+            'order' => $orderData,
         ]);
     }
 
