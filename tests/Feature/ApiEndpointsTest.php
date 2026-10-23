@@ -753,6 +753,54 @@ class ApiEndpointsTest extends TestCase
             ->assertCookie('gw_token');
         $this->assertDatabaseHas('users', ['phonenumber' => '09121112233']);
     }
+
+    public function test_api_flexible_order_creation_and_admin_game_creation(): void
+    {
+        [$platform, $game, $variant] = $this->createPlatformAndGame();
+
+        $customer = User::factory()->create();
+        $customer->wallet()->create(['balance' => 500000]);
+        $token = $customer->createToken('flex-cust')->plainTextToken;
+
+        // 1. Order creation via POST /api/orders with aliased keys
+        $orderRes = $this->withToken($token)->postJson('/api/orders', [
+            'platform' => $platform->slug,
+            'payment_method' => 'wallet',
+            'game_ids' => [$game->id],
+        ]);
+
+        $orderRes->assertCreated()
+            ->assertJson([
+                'ok' => true,
+                'method' => 'wallet',
+            ]);
+        $this->assertDatabaseCount('orders', 1);
+
+        // Reset auth guard between customer and admin requests in test
+        auth('sanctum')->forgetUser();
+        auth()->forgetGuards();
+
+        // 2. Admin create game with simplified payload (string platforms, no complex variants)
+        $admin = User::factory()->admin()->create();
+        $adminToken = $admin->createToken('flex-admin')->plainTextToken;
+
+        $createGameRes = $this->withToken($adminToken)->postJson(route('api.admin.games.store'), [
+            'name' => 'Witcher 4',
+            'genre' => 'RPG',
+            'price' => 1800000,
+            'size' => 70,
+            'platforms' => [$platform->slug],
+        ]);
+
+        $createGameRes->assertCreated()
+            ->assertJson([
+                'ok' => true,
+                'data' => [
+                    'title' => 'Witcher 4',
+                ],
+            ]);
+        $this->assertDatabaseHas('games', ['title' => 'Witcher 4']);
+    }
 }
 
 

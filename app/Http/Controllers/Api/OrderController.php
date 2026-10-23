@@ -68,6 +68,25 @@ class OrderController extends Controller
      */
     public function checkout(Request $request): JsonResponse
     {
+        if (!$request->has('method') && $request->has('payment_method')) {
+            $request->merge(['method' => $request->input('payment_method')]);
+        }
+        if (!$request->has('method') && $request->has('paymentMethod')) {
+            $request->merge(['method' => $request->input('paymentMethod')]);
+        }
+        if (!$request->has('console') && $request->has('platform')) {
+            $request->merge(['console' => $request->input('platform')]);
+        }
+        if (!$request->has('console') && $request->has('console_type')) {
+            $request->merge(['console' => $request->input('console_type')]);
+        }
+        if ($request->has('game_ids') && !$request->has('games')) {
+            $request->merge(['games' => $request->input('game_ids')]);
+        }
+        if ($request->has('gameIds') && !$request->has('games')) {
+            $request->merge(['games' => $request->input('gameIds')]);
+        }
+
         $validated = $request->validate([
             'console' => ['required', 'string'],
             'console_note' => ['nullable', 'string', 'max:255'],
@@ -76,7 +95,7 @@ class OrderController extends Controller
             'variants.*' => ['integer', 'exists:game_variants,id'],
             'items' => ['nullable', 'array', 'min:1'],
             'games' => ['nullable', 'array', 'min:1'],
-            'games.*' => ['string'],
+            'games.*' => ['nullable'],
         ], [
             'method.required' => 'انتخاب روش پرداخت الزامی است.',
             'method.in' => 'روش پرداخت باید کیف پول یا درگاه بانکی باشد.',
@@ -103,13 +122,18 @@ class OrderController extends Controller
             foreach ($request->input('items') as $item) {
                 if (is_numeric($item)) {
                     $rawVariantIds[] = (int) $item;
+                } elseif (is_string($item)) {
+                    $gameSlugs[] = $item;
                 } elseif (is_array($item)) {
                     if (!empty($item['variantId'])) $rawVariantIds[] = (int) $item['variantId'];
                     elseif (!empty($item['variant_id'])) $rawVariantIds[] = (int) $item['variant_id'];
                     elseif (!empty($item['id'])) $rawVariantIds[] = (int) $item['id'];
-                    elseif (!empty($item['gameId'])) $gameSlugs[] = (string) $item['gameId'];
+                    
+                    if (!empty($item['gameId'])) $gameSlugs[] = (string) $item['gameId'];
                     elseif (!empty($item['game_id'])) $gameSlugs[] = (string) $item['game_id'];
                     elseif (!empty($item['slug'])) $gameSlugs[] = (string) $item['slug'];
+                    elseif (!empty($item['game']['id'])) $gameSlugs[] = (string) $item['game']['id'];
+                    elseif (!empty($item['game']['slug'])) $gameSlugs[] = (string) $item['game']['slug'];
                 }
             }
         }
@@ -190,11 +214,15 @@ class OrderController extends Controller
                     $total
                 );
 
+                $orderData = $this->transformOrder($order->fresh(['items.game', 'items.gameVariant.platform']));
+
                 return response()->json([
                     'ok' => true,
                     'method' => 'wallet',
                     'order_id' => $order->id,
-                    'order' => $this->transformOrder($order->fresh(['items.game', 'items.gameVariant.platform'])),
+                    'id' => $order->id,
+                    'order' => $orderData,
+                    'data' => $orderData,
                     'message' => 'پرداخت با موفقیت انجام شد و سفارش شما ثبت گردید.',
                 ], 201);
             } catch (RuntimeException $e) {

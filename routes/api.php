@@ -98,6 +98,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/orders', [OrderController::class, 'index'])->name('api.orders.index');
     Route::get('/orders/{id}', [OrderController::class, 'show'])->name('api.orders.show');
     Route::post('/orders/checkout', [OrderController::class, 'checkout'])->middleware('throttle:financial')->name('api.orders.checkout');
+    Route::post('/orders', [OrderController::class, 'checkout'])->middleware('throttle:financial');
+    Route::post('/checkout', [OrderController::class, 'checkout'])->middleware('throttle:financial');
     Route::get('/orders/payment/callback', [OrderController::class, 'callback'])->name('api.orders.callback');
 
     // Game Ratings & Reviews

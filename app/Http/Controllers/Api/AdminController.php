@@ -516,30 +516,78 @@ class AdminController extends Controller
             $request->merge(['is_available' => $request->boolean('available')]);
         }
 
-        $rawVariants = $request->input('variants') ?? $request->input('platforms') ?? [];
+        $basePrice = $request->input('price', 1000000);
+        $baseSize = $request->input('size', 50.0);
+
+        $rawVariants = $request->input('variants') ?? $request->input('platforms') ?? null;
+        if (empty($rawVariants) && $request->filled('platform')) {
+            $rawVariants = [$request->input('platform')];
+        }
+        if (empty($rawVariants) && $request->filled('console')) {
+            $rawVariants = [$request->input('console')];
+        }
+
+        $normalizedVariants = [];
         if (!empty($rawVariants) && is_array($rawVariants)) {
-            $normalizedVariants = [];
             foreach ($rawVariants as $v) {
-                $platformId = $v['platform_id'] ?? null;
-                if (!$platformId && !empty($v['console'])) {
-                    $platform = Platform::where('slug', $v['console'])
-                        ->orWhere('name', $v['console'])
+                if (is_string($v) || is_numeric($v)) {
+                    $platform = Platform::where('slug', $v)
+                        ->orWhere('name', $v)
+                        ->orWhere('id', (int) $v)
                         ->first();
-                    $platformId = $platform?->id;
+                    if ($platform) {
+                        $isCopy = str_contains($platform->slug, 'copy') || $platform->slug === 'other';
+                        $normalizedVariants[] = [
+                            'platform_id' => $platform->id,
+                            'price' => $isCopy ? round($basePrice * 0.35) : $basePrice,
+                            'size' => $baseSize,
+                            'is_available' => true,
+                        ];
+                    }
+                } elseif (is_array($v)) {
+                    $platformId = $v['platform_id'] ?? null;
+                    if (!$platformId && !empty($v['console'])) {
+                        $platform = Platform::where('slug', $v['console'])
+                            ->orWhere('name', $v['console'])
+                            ->first();
+                        $platformId = $platform?->id;
+                    }
+                    if (!$platformId && !empty($v['platform'])) {
+                        $platform = Platform::where('slug', $v['platform'])
+                            ->orWhere('name', $v['platform'])
+                            ->first();
+                        $platformId = $platform?->id;
+                    }
+                    if (!$platformId && !empty($v['slug'])) {
+                        $platform = Platform::where('slug', $v['slug'])->first();
+                        $platformId = $platform?->id;
+                    }
+                    if ($platformId) {
+                        $normalizedVariants[] = [
+                            'platform_id' => $platformId,
+                            'price' => $v['price'] ?? $basePrice,
+                            'size' => $v['size'] ?? $baseSize,
+                            'is_available' => $v['is_available'] ?? $v['available'] ?? true,
+                        ];
+                    }
                 }
-                if ($platformId) {
-                    $normalizedVariants[] = [
-                        'platform_id' => $platformId,
-                        'price' => $v['price'] ?? 1000000,
-                        'size' => $v['size'] ?? 50.0,
-                        'is_available' => $v['is_available'] ?? $v['available'] ?? true,
-                    ];
-                }
-            }
-            if (!empty($normalizedVariants)) {
-                $request->merge(['variants' => $normalizedVariants]);
             }
         }
+
+        // If still empty, auto-populate for all 11 platforms
+        if (empty($normalizedVariants)) {
+            foreach (Platform::all() as $p) {
+                $isCopy = str_contains($p->slug, 'copy') || $p->slug === 'other';
+                $normalizedVariants[] = [
+                    'platform_id' => $p->id,
+                    'price' => $isCopy ? round($basePrice * 0.35) : $basePrice,
+                    'size' => $baseSize,
+                    'is_available' => true,
+                ];
+            }
+        }
+
+        $request->merge(['variants' => $normalizedVariants]);
 
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:255'],
@@ -626,24 +674,60 @@ class AdminController extends Controller
             $request->merge(['is_available' => $request->boolean('available')]);
         }
 
+        $basePrice = $request->input('price', 1000000);
+        $baseSize = $request->input('size', 50.0);
+
         $rawVariants = $request->input('variants') ?? $request->input('platforms') ?? null;
+        if (empty($rawVariants) && $request->filled('platform')) {
+            $rawVariants = [$request->input('platform')];
+        }
+        if (empty($rawVariants) && $request->filled('console')) {
+            $rawVariants = [$request->input('console')];
+        }
+
         if (!empty($rawVariants) && is_array($rawVariants)) {
             $normalizedVariants = [];
             foreach ($rawVariants as $v) {
-                $platformId = $v['platform_id'] ?? null;
-                if (!$platformId && !empty($v['console'])) {
-                    $platform = Platform::where('slug', $v['console'])
-                        ->orWhere('name', $v['console'])
+                if (is_string($v) || is_numeric($v)) {
+                    $platform = Platform::where('slug', $v)
+                        ->orWhere('name', $v)
+                        ->orWhere('id', (int) $v)
                         ->first();
-                    $platformId = $platform?->id;
-                }
-                if ($platformId) {
-                    $normalizedVariants[] = [
-                        'platform_id' => $platformId,
-                        'price' => $v['price'] ?? 1000000,
-                        'size' => $v['size'] ?? 50.0,
-                        'is_available' => $v['is_available'] ?? $v['available'] ?? true,
-                    ];
+                    if ($platform) {
+                        $isCopy = str_contains($platform->slug, 'copy') || $platform->slug === 'other';
+                        $normalizedVariants[] = [
+                            'platform_id' => $platform->id,
+                            'price' => $isCopy ? round($basePrice * 0.35) : $basePrice,
+                            'size' => $baseSize,
+                            'is_available' => true,
+                        ];
+                    }
+                } elseif (is_array($v)) {
+                    $platformId = $v['platform_id'] ?? null;
+                    if (!$platformId && !empty($v['console'])) {
+                        $platform = Platform::where('slug', $v['console'])
+                            ->orWhere('name', $v['console'])
+                            ->first();
+                        $platformId = $platform?->id;
+                    }
+                    if (!$platformId && !empty($v['platform'])) {
+                        $platform = Platform::where('slug', $v['platform'])
+                            ->orWhere('name', $v['platform'])
+                            ->first();
+                        $platformId = $platform?->id;
+                    }
+                    if (!$platformId && !empty($v['slug'])) {
+                        $platform = Platform::where('slug', $v['slug'])->first();
+                        $platformId = $platform?->id;
+                    }
+                    if ($platformId) {
+                        $normalizedVariants[] = [
+                            'platform_id' => $platformId,
+                            'price' => $v['price'] ?? $basePrice,
+                            'size' => $v['size'] ?? $baseSize,
+                            'is_available' => $v['is_available'] ?? $v['available'] ?? true,
+                        ];
+                    }
                 }
             }
             if (!empty($normalizedVariants)) {

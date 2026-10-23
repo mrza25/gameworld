@@ -14,6 +14,7 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call(PlatformSeeder::class);
+        $this->call(GameSeeder::class);
 
         // Test Admin
         User::firstOrCreate(
