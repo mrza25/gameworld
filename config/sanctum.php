@@ -18,12 +18,24 @@ return [
     |
     */
 
-    'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS', sprintf(
-        '%s%s',
-        'localhost,localhost:3000,127.0.0.1,127.0.0.1:8000,::1',
-        Sanctum::currentApplicationUrlWithPort(),
-        // Sanctum::currentRequestHost(),
-    ))),
+    'stateful' => array_values(array_filter(array_unique(array_merge(
+        explode(',', env('SANCTUM_STATEFUL_DOMAINS', '')),
+        [
+            'localhost',
+            'localhost:3000',
+            '127.0.0.1',
+            '127.0.0.1:8000',
+            '127.0.0.1:3000',
+            'gameworld.test',
+            '10.100.0.2:3000',
+            '10.100.0.2',
+            '192.168.1.149:3000',
+            '192.168.1.149:8000',
+            '192.168.1.149',
+            '::1',
+        ],
+        Sanctum::currentApplicationUrlWithPort() ? [Sanctum::currentApplicationUrlWithPort()] : []
+    )))),
 
     /*
     |--------------------------------------------------------------------------

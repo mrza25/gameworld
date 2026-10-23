@@ -23,18 +23,20 @@ return [
         env('FRONTEND_URL', 'http://localhost:3000'),
         'http://127.0.0.1:3000',
         'http://localhost:3000',
+        'http://10.100.0.2:3000',
+        'http://192.168.1.149:3000',
         'http://gameworld.test',
     ],
 
     'allowed_origins_patterns' => [
-        '#^https?://(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$#',
+        '#^https?://(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|localhost|127\.0\.0\.1)(:\d+)?$#',
     ],
 
     'allowed_headers' => ['*'],
 
-    'exposed_headers' => [],
+    'exposed_headers' => ['*'],
 
-    'max_age' => 0,
+    'max_age' => 86400,
 
     'supports_credentials' => true,
 

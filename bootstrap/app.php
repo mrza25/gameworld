@@ -14,6 +14,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        $middleware->statefulApi();
+        $middleware->encryptCookies(except: [
+            'gw_token',
+        ]);
         $middleware->api(prepend: [
             \App\Http\Middleware\ExtractTokenFromCookie::class,
         ]);

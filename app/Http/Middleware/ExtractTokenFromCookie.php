@@ -17,10 +17,27 @@ class ExtractTokenFromCookie
      */
     public function handle(Request $request, Closure $next): Response
     {
-        $token = $request->cookie('gw_token') ?? $request->cookies->get('gw_token');
+        $rawToken = $request->cookie('gw_token')
+            ?? $request->cookies->get('gw_token')
+            ?? $request->header('X-Auth-Token')
+            ?? $request->header('X-Token');
 
-        if (! $request->headers->has('Authorization') && ! empty($token) && is_string($token)) {
-            $request->headers->set('Authorization', 'Bearer ' . $token);
+        if (! empty($rawToken) && is_string($rawToken)) {
+            $token = trim($rawToken, "\"' \t\n\r\0\x0B");
+
+            // If token was encrypted by Laravel EncryptCookies, decrypt it seamlessly
+            try {
+                $decrypted = app('encrypter')->decrypt($token, false);
+                if (is_string($decrypted) && ! empty($decrypted)) {
+                    $token = $decrypted;
+                }
+            } catch (\Throwable) {
+                // Was not encrypted, continue with raw token
+            }
+
+            if (! $request->headers->has('Authorization') && ! empty($token)) {
+                $request->headers->set('Authorization', 'Bearer ' . $token);
+            }
         }
 
         return $next($request);
