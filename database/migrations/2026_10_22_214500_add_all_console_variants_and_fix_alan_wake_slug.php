@@ -24,21 +24,28 @@ return new class extends Migration
 
         // 2. Ensure all 11 platforms exist
         $platformDefs = [
-            ['id' => 1, 'name' => 'PlayStation 5', 'slug' => 'ps5'],
-            ['id' => 2, 'name' => 'PlayStation 5 (کپی‌خور)', 'slug' => 'ps5-copy'],
-            ['id' => 3, 'name' => 'PlayStation 4', 'slug' => 'ps4'],
-            ['id' => 4, 'name' => 'PlayStation 4 (کپی‌خور)', 'slug' => 'ps4-copy'],
-            ['id' => 5, 'name' => 'Xbox Series X', 'slug' => 'xbox-series-x'],
-            ['id' => 6, 'name' => 'Xbox Series S', 'slug' => 'xbox-series-s'],
-            ['id' => 7, 'name' => 'Xbox Series S (کپی‌خور)', 'slug' => 'xbox-series-s-copy'],
-            ['id' => 8, 'name' => 'Xbox One', 'slug' => 'xbox-one'],
-            ['id' => 9, 'name' => 'Xbox One (کپی‌خور)', 'slug' => 'xbox-one-copy'],
-            ['id' => 10, 'name' => 'Xbox Series X (کپی‌خور)', 'slug' => 'xbox-series-x-copy'],
-            ['id' => 11, 'name' => 'سایر کنسول‌ها', 'slug' => 'other'],
+            ['name' => 'PlayStation 5', 'slug' => 'ps5'],
+            ['name' => 'PlayStation 5 (کپی‌خور)', 'slug' => 'ps5-copy'],
+            ['name' => 'PlayStation 4', 'slug' => 'ps4'],
+            ['name' => 'PlayStation 4 (کپی‌خور)', 'slug' => 'ps4-copy'],
+            ['name' => 'Xbox Series X', 'slug' => 'xbox-series-x'],
+            ['name' => 'Xbox Series X (کپی‌خور)', 'slug' => 'xbox-series-x-copy'],
+            ['name' => 'Xbox Series S', 'slug' => 'xbox-series-s'],
+            ['name' => 'Xbox Series S (کپی‌خور)', 'slug' => 'xbox-series-s-copy'],
+            ['name' => 'Xbox One', 'slug' => 'xbox-one'],
+            ['name' => 'Xbox One (کپی‌خور)', 'slug' => 'xbox-one-copy'],
+            ['name' => 'سایر کنسول‌ها', 'slug' => 'other'],
         ];
 
         foreach ($platformDefs as $p) {
-            DB::table('platforms')->updateOrInsert(['id' => $p['id']], $p);
+            DB::table('platforms')->updateOrInsert(
+                ['slug' => $p['slug']],
+                [
+                    'name' => $p['name'],
+                    'updated_at' => now(),
+                    'created_at' => now(),
+                ]
+            );
         }
 
         // 3. Populate variants for all 5 games across all 11 platforms
