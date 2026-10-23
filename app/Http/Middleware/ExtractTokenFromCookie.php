@@ -17,10 +17,36 @@ class ExtractTokenFromCookie
      */
     public function handle(Request $request, Closure $next): Response
     {
+        if ($request->headers->has('Authorization')) {
+            return $next($request);
+        }
+
         $rawToken = $request->cookie('gw_token')
+            ?? $request->cookie('token')
+            ?? $request->cookie('auth_token')
+            ?? $request->cookie('access_token')
             ?? $request->cookies->get('gw_token')
+            ?? $request->cookies->get('token')
+            ?? $request->cookies->get('auth_token')
             ?? $request->header('X-Auth-Token')
-            ?? $request->header('X-Token');
+            ?? $request->header('X-Token')
+            ?? $request->header('X-Access-Token')
+            ?? $request->query('token')
+            ?? $request->query('auth_token');
+
+        if (empty($rawToken)) {
+            $sessionCookie = $request->cookie('gw_session') ?? $request->cookies->get('gw_session');
+            if (! empty($sessionCookie) && is_string($sessionCookie)) {
+                try {
+                    $decoded = json_decode(base64_decode(strtr($sessionCookie, '-_', '+/')), true);
+                    if (is_array($decoded) && ! empty($decoded['token'])) {
+                        $rawToken = $decoded['token'];
+                    }
+                } catch (\Throwable) {
+                    // Ignore parsing error
+                }
+            }
+        }
 
         if (! empty($rawToken) && is_string($rawToken)) {
             $token = trim($rawToken, "\"' \t\n\r\0\x0B");
@@ -35,7 +61,7 @@ class ExtractTokenFromCookie
                 // Was not encrypted, continue with raw token
             }
 
-            if (! $request->headers->has('Authorization') && ! empty($token)) {
+            if (! empty($token)) {
                 $request->headers->set('Authorization', 'Bearer ' . $token);
             }
         }
