@@ -322,9 +322,17 @@ class ApiEndpointsTest extends TestCase
         $dashRes->assertOk()
             ->assertJsonStructure([
                 'ok',
-                'stats' => ['games', 'orders', 'users', 'pending_orders'],
+                'stats' => ['games', 'orders', 'users', 'pending_orders', 'total_orders', 'today_orders', 'total_users', 'total_games'],
                 'recentOrders',
             ]);
+
+        $statsRes = $this->withToken($adminToken)->getJson(route('api.admin.dashboard-stats'));
+        $statsRes->assertOk()
+            ->assertJsonStructure(['ok', 'stats' => ['total_orders', 'today_orders', 'total_users', 'total_games'], 'total_orders', 'today_orders', 'total_users', 'total_games']);
+
+        // Test admin games list endpoint
+        $adminGamesRes = $this->withToken($adminToken)->getJson(route('api.admin.games.index'));
+        $adminGamesRes->assertOk()->assertJsonStructure(['ok', 'data']);
 
         // 2. Create customer and order
         $customer = User::factory()->create();

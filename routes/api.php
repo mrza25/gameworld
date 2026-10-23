@@ -120,6 +120,7 @@ Route::middleware(['auth:sanctum', AdminMiddleware::class])
     ->group(function () {
         // Dashboard
         Route::get('/dashboard', [AdminController::class, 'dashboard'])->name('api.admin.dashboard');
+        Route::get('/dashboard-stats', [AdminController::class, 'dashboardStats'])->name('api.admin.dashboard-stats');
 
         // Orders Management
         Route::get('/orders', [AdminController::class, 'orders'])->name('api.admin.orders');
@@ -135,6 +136,7 @@ Route::middleware(['auth:sanctum', AdminMiddleware::class])
         Route::delete('/users/{id}', [AdminController::class, 'deleteUser'])->name('api.admin.users.delete');
 
         // Games Management
+        Route::get('/games', [AdminController::class, 'games'])->name('api.admin.games.index');
         Route::post('/games', [AdminController::class, 'storeGame'])->name('api.admin.games.store');
         Route::patch('/games/{id}', [AdminController::class, 'updateGame'])->name('api.admin.games.update');
         Route::post('/games/{id}/screenshots', [AdminController::class, 'uploadScreenshots'])->name('api.admin.games.screenshots');

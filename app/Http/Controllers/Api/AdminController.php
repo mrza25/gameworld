@@ -22,10 +22,19 @@ class AdminController extends Controller
      */
     public function dashboard(): JsonResponse
     {
+        $todayOrders = Order::whereDate('created_at', today())->count();
+        $totalOrders = Order::count();
+        $totalUsers = User::count();
+        $totalGames = Game::count();
+
         $stats = [
-            'games' => Game::count(),
-            'orders' => Order::count(),
-            'users' => User::count(),
+            'total_orders' => $totalOrders,
+            'today_orders' => $todayOrders,
+            'total_users' => $totalUsers,
+            'total_games' => $totalGames,
+            'games' => $totalGames,
+            'orders' => $totalOrders,
+            'users' => $totalUsers,
             'pending_orders' => Order::where('status', OrderStatus::Pending)->count(),
             'processing_orders' => Order::where('status', OrderStatus::Processing)->count(),
             'completed_orders' => Order::where('status', OrderStatus::Completed)->count(),
@@ -41,6 +50,43 @@ class AdminController extends Controller
             'ok' => true,
             'stats' => $stats,
             'recentOrders' => $recentOrders,
+            'total_orders' => $totalOrders,
+            'today_orders' => $todayOrders,
+            'total_users' => $totalUsers,
+            'total_games' => $totalGames,
+        ]);
+    }
+
+    /**
+     * Dedicated endpoint for admin dashboard widgets (dashstatus).
+     */
+    public function dashboardStats(): JsonResponse
+    {
+        $todayOrders = Order::whereDate('created_at', today())->count();
+        $totalOrders = Order::count();
+        $totalUsers = User::count();
+        $totalGames = Game::count();
+
+        $stats = [
+            'total_orders' => $totalOrders,
+            'today_orders' => $todayOrders,
+            'total_users' => $totalUsers,
+            'total_games' => $totalGames,
+            'games' => $totalGames,
+            'orders' => $totalOrders,
+            'users' => $totalUsers,
+            'pending_orders' => Order::where('status', OrderStatus::Pending)->count(),
+            'processing_orders' => Order::where('status', OrderStatus::Processing)->count(),
+            'completed_orders' => Order::where('status', OrderStatus::Completed)->count(),
+        ];
+
+        return response()->json([
+            'ok' => true,
+            'stats' => $stats,
+            'total_orders' => $totalOrders,
+            'today_orders' => $todayOrders,
+            'total_users' => $totalUsers,
+            'total_games' => $totalGames,
         ]);
     }
 
@@ -278,6 +324,31 @@ class AdminController extends Controller
         return response()->json([
             'ok' => true,
             'message' => 'کاربر با موفقیت حذف شد.',
+        ]);
+    }
+
+    /**
+     * List games for administrative management.
+     */
+    public function games(Request $request): JsonResponse
+    {
+        $query = Game::with(['variants.platform'])->latest();
+
+        if ($request->filled('search')) {
+            $q = $request->search;
+            $query->where(function ($sq) use ($q) {
+                $sq->where('title', 'like', "%{$q}%")
+                   ->orWhere('genre', 'like', "%{$q}%")
+                   ->orWhere('developer', 'like', "%{$q}%");
+            });
+        }
+
+        $games = $query->paginate($request->integer('per_page', 15));
+        $games->getCollection()->transform(fn (Game $game) => $game->toCatalogArray());
+
+        return response()->json([
+            'ok' => true,
+            'data' => $games,
         ]);
     }
 
