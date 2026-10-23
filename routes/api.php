@@ -125,6 +125,7 @@ Route::middleware(['auth:sanctum', AdminMiddleware::class])
         // Orders Management
         Route::get('/orders', [AdminController::class, 'orders'])->name('api.admin.orders');
         Route::get('/orders/{id}', [AdminController::class, 'orderDetail'])->name('api.admin.orders.show');
+        Route::patch('/orders/{id}', [AdminController::class, 'updateOrder'])->name('api.admin.orders.update');
         Route::patch('/orders/{id}/status', [AdminController::class, 'updateOrderStatus'])->name('api.admin.orders.status');
         Route::patch('/orders/{id}/payment-status', [AdminController::class, 'updatePaymentStatus'])->name('api.admin.orders.payment-status');
         Route::patch('/orders/{id}/items/{itemId}/installation-status', [AdminController::class, 'updateItemInstallationStatus'])->name('api.admin.orders.items.installation');

@@ -98,23 +98,56 @@ class AdminController extends Controller
         $query = Order::with(['user', 'items.game', 'items.gameVariant.platform', 'payments'])->latest();
 
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            $statusKey = $this->resolveStatusKey($request->status);
+            $query->where('status', $statusKey);
+        }
+
+        if ($request->filled('payment_method')) {
+            $pm = $request->payment_method;
+            $query->whereHas('payments', function ($q) use ($pm) {
+                $q->where('method', 'like', "%{$pm}%");
+            });
+        }
+
+        if ($request->filled('from_date')) {
+            $query->whereDate('created_at', '>=', $request->from_date);
+        }
+
+        if ($request->filled('to_date')) {
+            $query->whereDate('created_at', '<=', $request->to_date);
         }
 
         if ($request->filled('search')) {
             $search = $request->search;
-            $query->whereHas('user', function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('phonenumber', 'like', "%{$search}%");
+            $cleanSearch = ltrim($search, '#');
+            $query->where(function ($q) use ($search, $cleanSearch) {
+                if (is_numeric($cleanSearch)) {
+                    $q->where('id', (int) $cleanSearch);
+                }
+                $q->orWhereHas('user', function ($uq) use ($search) {
+                    $uq->where('name', 'like', "%{$search}%")
+                       ->orWhere('phonenumber', 'like', "%{$search}%");
+                });
             });
         }
 
         $orders = $query->paginate($request->integer('per_page', 15));
         $orders->getCollection()->transform(fn (Order $order) => $order->toApiArray());
 
+        $paginatorArray = $orders->toArray();
+        $meta = [
+            'current_page' => $orders->currentPage(),
+            'last_page' => $orders->lastPage(),
+            'per_page' => $orders->perPage(),
+            'total' => $orders->total(),
+        ];
+        $paginatorArray['meta'] = $meta;
+
         return response()->json([
             'ok' => true,
-            'data' => $orders,
+            'data' => $paginatorArray,
+            'meta' => $meta,
+            'orders' => $orders->items(),
         ]);
     }
 
@@ -131,6 +164,74 @@ class AdminController extends Controller
 
         return response()->json([
             'ok' => true,
+            'data' => $orderData,
+            'order' => $orderData,
+        ]);
+    }
+
+    /**
+     * Unified update for order (status, payment_status, install_statuses).
+     */
+    public function updateOrder(Request $request, int|string $id): JsonResponse
+    {
+        $cleanId = (int) ltrim((string) $id, '#');
+        $order = Order::with('items')->findOrFail($cleanId);
+
+        $validated = $request->validate([
+            'status' => ['nullable', 'string'],
+            'payment_status' => ['nullable', 'string'],
+            'install_statuses' => ['nullable', 'array'],
+            'install_statuses.*.item_id' => ['nullable', 'integer'],
+            'install_statuses.*.id' => ['nullable', 'integer'],
+            'install_statuses.*.install_status' => ['nullable', 'string'],
+            'install_statuses.*.status' => ['nullable', 'string'],
+        ]);
+
+        $statusChanged = false;
+
+        if (!empty($validated['status'])) {
+            $statusKey = $this->resolveStatusKey($validated['status']);
+            $oldStatus = $order->status instanceof \BackedEnum ? $order->status->value : $order->status;
+            $order->update(['status' => $statusKey]);
+            if ($oldStatus !== $statusKey) {
+                $statusChanged = true;
+            }
+        }
+
+        if (!empty($validated['payment_status'])) {
+            $paymentKey = $this->resolvePaymentStatusKey($validated['payment_status']);
+            $order->update(['payment_status' => $paymentKey]);
+        }
+
+        if (!empty($validated['install_statuses']) && is_array($validated['install_statuses'])) {
+            foreach ($validated['install_statuses'] as $itemStatus) {
+                $itemId = $itemStatus['item_id'] ?? $itemStatus['id'] ?? null;
+                $newInstallStatus = $itemStatus['install_status'] ?? $itemStatus['status'] ?? null;
+                if ($itemId && $newInstallStatus) {
+                    $installKey = $this->resolveInstallStatusKey($newInstallStatus);
+                    $item = $order->items()->find($itemId);
+                    if ($item) {
+                        $item->update([
+                            'installation_status' => $installKey,
+                            'installed_at' => $installKey === 'installed' ? now() : null,
+                        ]);
+                    }
+                }
+            }
+            $order->syncStatusFromItems();
+            $statusChanged = true;
+        }
+
+        $order->refresh();
+        if ($statusChanged) {
+            $order->user?->notify(new OrderStatusUpdated($order));
+        }
+
+        $orderData = $order->fresh(['user', 'items.game', 'items.gameVariant.platform', 'payments'])->toApiArray();
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'سفارش با موفقیت به‌روزرسانی شد.',
             'data' => $orderData,
             'order' => $orderData,
         ]);
@@ -233,15 +334,35 @@ class AdminController extends Controller
 
         if ($request->filled('search')) {
             $q = $request->search;
-            $query->where('name', 'like', "%{$q}%")
-                  ->orWhere('phonenumber', 'like', "%{$q}%");
+            $query->where(function ($sq) use ($q) {
+                $sq->where('name', 'like', "%{$q}%")
+                   ->orWhere('phonenumber', 'like', "%{$q}%");
+            });
+        }
+
+        if ($request->filled('from_date')) {
+            $query->whereDate('created_at', '>=', $request->from_date);
+        }
+
+        if ($request->filled('to_date')) {
+            $query->whereDate('created_at', '<=', $request->to_date);
         }
 
         $users = $query->paginate($request->integer('per_page', 15));
+        $paginatorArray = $users->toArray();
+        $meta = [
+            'current_page' => $users->currentPage(),
+            'last_page' => $users->lastPage(),
+            'per_page' => $users->perPage(),
+            'total' => $users->total(),
+        ];
+        $paginatorArray['meta'] = $meta;
 
         return response()->json([
             'ok' => true,
-            'data' => $users,
+            'data' => $paginatorArray,
+            'meta' => $meta,
+            'users' => $users->items(),
         ]);
     }
 
@@ -343,12 +464,43 @@ class AdminController extends Controller
             });
         }
 
+        if ($request->filled('genre')) {
+            $query->where('genre', $request->genre);
+        }
+
+        if ($request->filled('status')) {
+            $st = strtolower((string) $request->status);
+            if ($st === 'available' || $st === '1' || $st === 'true') {
+                $query->where('is_available', true);
+            } elseif ($st === 'unavailable' || $st === '0' || $st === 'false') {
+                $query->where('is_available', false);
+            }
+        }
+
+        if ($request->filled('console')) {
+            $consoleSlug = $request->console;
+            $query->whereHas('variants.platform', function ($pq) use ($consoleSlug) {
+                $pq->where('slug', $consoleSlug)->orWhere('name', $consoleSlug);
+            });
+        }
+
         $games = $query->paginate($request->integer('per_page', 15));
         $games->getCollection()->transform(fn (Game $game) => $game->toCatalogArray());
 
+        $paginatorArray = $games->toArray();
+        $meta = [
+            'current_page' => $games->currentPage(),
+            'last_page' => $games->lastPage(),
+            'per_page' => $games->perPage(),
+            'total' => $games->total(),
+        ];
+        $paginatorArray['meta'] = $meta;
+
         return response()->json([
             'ok' => true,
-            'data' => $games,
+            'data' => $paginatorArray,
+            'meta' => $meta,
+            'games' => $games->items(),
         ]);
     }
 
@@ -357,6 +509,38 @@ class AdminController extends Controller
      */
     public function storeGame(Request $request): JsonResponse
     {
+        if (!$request->filled('title') && $request->filled('name')) {
+            $request->merge(['title' => $request->input('name')]);
+        }
+        if (!$request->has('is_available') && $request->has('available')) {
+            $request->merge(['is_available' => $request->boolean('available')]);
+        }
+
+        $rawVariants = $request->input('variants') ?? $request->input('platforms') ?? [];
+        if (!empty($rawVariants) && is_array($rawVariants)) {
+            $normalizedVariants = [];
+            foreach ($rawVariants as $v) {
+                $platformId = $v['platform_id'] ?? null;
+                if (!$platformId && !empty($v['console'])) {
+                    $platform = Platform::where('slug', $v['console'])
+                        ->orWhere('name', $v['console'])
+                        ->first();
+                    $platformId = $platform?->id;
+                }
+                if ($platformId) {
+                    $normalizedVariants[] = [
+                        'platform_id' => $platformId,
+                        'price' => $v['price'] ?? 1000000,
+                        'size' => $v['size'] ?? 50.0,
+                        'is_available' => $v['is_available'] ?? $v['available'] ?? true,
+                    ];
+                }
+            }
+            if (!empty($normalizedVariants)) {
+                $request->merge(['variants' => $normalizedVariants]);
+            }
+        }
+
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255', 'unique:games,slug'],
@@ -434,6 +618,38 @@ class AdminController extends Controller
     public function updateGame(Request $request, int $id): JsonResponse
     {
         $game = Game::findOrFail($id);
+
+        if (!$request->filled('title') && $request->filled('name')) {
+            $request->merge(['title' => $request->input('name')]);
+        }
+        if (!$request->has('is_available') && $request->has('available')) {
+            $request->merge(['is_available' => $request->boolean('available')]);
+        }
+
+        $rawVariants = $request->input('variants') ?? $request->input('platforms') ?? null;
+        if (!empty($rawVariants) && is_array($rawVariants)) {
+            $normalizedVariants = [];
+            foreach ($rawVariants as $v) {
+                $platformId = $v['platform_id'] ?? null;
+                if (!$platformId && !empty($v['console'])) {
+                    $platform = Platform::where('slug', $v['console'])
+                        ->orWhere('name', $v['console'])
+                        ->first();
+                    $platformId = $platform?->id;
+                }
+                if ($platformId) {
+                    $normalizedVariants[] = [
+                        'platform_id' => $platformId,
+                        'price' => $v['price'] ?? 1000000,
+                        'size' => $v['size'] ?? 50.0,
+                        'is_available' => $v['is_available'] ?? $v['available'] ?? true,
+                    ];
+                }
+            }
+            if (!empty($normalizedVariants)) {
+                $request->merge(['variants' => $normalizedVariants]);
+            }
+        }
 
         $validated = $request->validate([
             'title' => ['nullable', 'string', 'max:255'],
