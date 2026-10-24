@@ -149,6 +149,30 @@ class Game extends Model
 
         $variants = $this->relationLoaded('variants') ? $this->variants : $this->variants()->with('platform')->get();
 
+        $variantList = $variants->map(fn ($variant) => [
+            'id' => $variant->id,
+            'variant_id' => $variant->id,
+            'platform_id' => $variant->platform_id,
+            'console' => $variant->platform?->slug ?? 'other',
+            'platform' => $variant->platform?->slug ?? 'other',
+            'console_name' => $variant->platform?->name ?? 'کنسول',
+            'platform_name' => $variant->platform?->name ?? 'کنسول',
+            'size' => (float) $variant->size,
+            'price' => (float) $variant->price,
+            'is_available' => (bool) $variant->is_available,
+            'available' => (bool) $variant->is_available,
+        ])->values()->all();
+
+        $firstVariant = $variants->first();
+        $basePrice = (float) ($this->price > 0 ? $this->price : ($firstVariant?->price ?? 0));
+        $baseSize = (float) ($this->size > 0 ? $this->size : ($firstVariant?->size ?? 0));
+        $basePlatform = $this->platform ?? ($firstVariant?->platform?->name ?? 'PlayStation 5');
+        $basePlatformSlug = $firstVariant?->platform?->slug ?? 'ps5';
+
+        $imageUrl = $this->image
+            ? (\Illuminate\Support\Str::startsWith($this->image, ['http://', 'https://']) ? $this->image : url('storage/' . ltrim($this->image, '/')))
+            : url('/images/logosite.png');
+
         return [
             'id' => $this->id,
             'name' => $this->title,
@@ -157,34 +181,34 @@ class Game extends Model
             'genre' => $persianGenre,
             'genre_raw' => $rawGenre,
             'genreRaw' => $rawGenre,
+            'price' => $basePrice,
+            'size' => $baseSize,
+            'platform' => $basePlatform,
+            'platform_slug' => $basePlatformSlug,
+            'console' => $basePlatformSlug,
             'brand' => $developer,
             'developer' => $developer,
             'releaseDate' => $releaseDate,
             'release_date' => $releaseDate,
             'releaseDateJalali' => $releaseDateJalali,
-            'age' => $this->age_rating ?? 16,
+            'age' => (int) ($this->age_rating ?? 16),
+            'age_rating' => (int) ($this->age_rating ?? 16),
             'available' => (bool) $this->is_available,
-            'description' => $this->description,
+            'is_available' => (bool) $this->is_available,
+            'description' => $this->description ?? '',
             'rate' => (float) $rate,
             'ratingCount' => (int) $count,
             'userRating' => $userRating ? (int) $userRating : null,
             'user_rating' => $userRating ? (int) $userRating : null,
             'sales' => (int) $sales,
-            'modes' => $this->modes ?? ['تک‌نفره', 'آنلاین'],
-            'languages' => $this->languages ?? ['انگلیسی', 'زیرنویس فارسی'],
-            'image' => $this->image
-                ? (\Illuminate\Support\Str::startsWith($this->image, ['http://', 'https://']) ? $this->image : url('storage/' . ltrim($this->image, '/')))
-                : url('/images/logosite.png'),
+            'modes' => (!empty($this->modes) && is_array($this->modes)) ? array_values($this->modes) : ['تک‌نفره', 'آنلاین'],
+            'languages' => (!empty($this->languages) && is_array($this->languages)) ? array_values($this->languages) : ['انگلیسی', 'زیرنویس فارسی'],
+            'image' => $imageUrl,
+            'cover' => $imageUrl,
+            'poster' => $imageUrl,
             'screenshots' => $screenshots,
-            'platforms' => $variants->map(fn ($variant) => [
-                'id' => $variant->id,
-                'variant_id' => $variant->id,
-                'console' => $variant->platform?->slug ?? 'other',
-                'console_name' => $variant->platform?->name ?? 'کنسول',
-                'size' => (float) $variant->size,
-                'price' => (float) $variant->price,
-                'is_available' => (bool) $variant->is_available,
-            ])->values()->all(),
+            'platforms' => $variantList,
+            'variants' => $variantList,
         ];
     }
 

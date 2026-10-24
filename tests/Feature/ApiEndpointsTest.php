@@ -801,6 +801,124 @@ class ApiEndpointsTest extends TestCase
             ]);
         $this->assertDatabaseHas('games', ['title' => 'Witcher 4']);
     }
+
+    public function test_admin_game_detail_view_and_attributes_persistence_and_update(): void
+    {
+        $platform = Platform::create(['name' => 'PS5 Pro', 'slug' => 'ps5-pro']);
+        $admin = User::factory()->admin()->create();
+        $adminToken = $admin->createToken('game-admin')->plainTextToken;
+
+        // 1. Create game with full attributes
+        $createRes = $this->withToken($adminToken)->postJson(route('api.admin.games.store'), [
+            'name' => 'Silent Hill 2 Remake',
+            'brand' => 'Konami',
+            'genre' => 'ترسناک',
+            'price' => 2200000,
+            'size' => 55.5,
+            'age' => 18,
+            'description' => 'A classic psychological horror game remade.',
+            'modes' => ['تک‌نفره'],
+            'languages' => ['فارسی', 'انگلیسی'],
+            'platforms' => [$platform->slug],
+        ]);
+
+        $createRes->assertCreated()
+            ->assertJson([
+                'ok' => true,
+                'data' => [
+                    'title' => 'Silent Hill 2 Remake',
+                    'brand' => 'Konami',
+                    'developer' => 'Konami',
+                    'price' => 2200000,
+                    'size' => 55.5,
+                    'age' => 18,
+                    'age_rating' => 18,
+                    'modes' => ['تک‌نفره'],
+                    'languages' => ['فارسی', 'انگلیسی'],
+                ],
+            ]);
+
+        $gameId = $createRes->json('data.id');
+        $gameSlug = $createRes->json('data.slug');
+
+        $this->assertDatabaseHas('games', [
+            'id' => $gameId,
+            'title' => 'Silent Hill 2 Remake',
+            'developer' => 'Konami',
+            'age_rating' => 18,
+            'price' => 2200000,
+            'size' => 55.5,
+        ]);
+
+        // 2. View game details by ID in admin
+        $viewById = $this->withToken($adminToken)->getJson(route('api.admin.games.show', $gameId));
+        $viewById->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'data' => [
+                    'id' => $gameId,
+                    'price' => 2200000,
+                    'size' => 55.5,
+                    'developer' => 'Konami',
+                ],
+            ]);
+
+        // 3. View game details by slug in admin
+        $viewBySlug = $this->withToken($adminToken)->getJson(route('api.admin.games.show', $gameSlug));
+        $viewBySlug->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'data' => [
+                    'slug' => $gameSlug,
+                    'price' => 2200000,
+                ],
+            ]);
+
+        // 4. Update game via PUT /api/admin/games/{slug}
+        $updateRes = $this->withToken($adminToken)->putJson(route('api.admin.games.update', $gameSlug), [
+            'price' => 2500000,
+            'size' => 60.0,
+            'brand' => 'Bloober Team',
+            'modes' => ['تک‌نفره', 'آنلاین'],
+        ]);
+
+        $updateRes->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'data' => [
+                    'price' => 2500000,
+                    'size' => 60.0,
+                    'developer' => 'Bloober Team',
+                    'brand' => 'Bloober Team',
+                    'modes' => ['تک‌نفره', 'آنلاین'],
+                ],
+            ]);
+
+        $this->assertDatabaseHas('games', [
+            'id' => $gameId,
+            'price' => 2500000,
+            'size' => 60.0,
+            'developer' => 'Bloober Team',
+        ]);
+
+        $this->assertDatabaseHas('game_variants', [
+            'game_id' => $gameId,
+            'price' => 2500000,
+            'size' => 60.0,
+        ]);
+
+        // 5. Public storefront show by slug
+        $publicShow = $this->getJson(route('api.products.show', $gameSlug));
+        $publicShow->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'data' => [
+                    'price' => 2500000,
+                    'size' => 60.0,
+                    'brand' => 'Bloober Team',
+                ],
+            ]);
+    }
 }
 
 

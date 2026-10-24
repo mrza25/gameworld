@@ -104,9 +104,13 @@ class ProductController extends Controller
             ->orWhere('id', is_numeric($slug) ? $slug : 0)
             ->firstOrFail();
 
+        $data = $this->transformGame($game);
+
         return response()->json([
             'ok' => true,
-            'data' => $this->transformGame($game),
+            'data' => $data,
+            'game' => $data,
+            'product' => $data,
         ]);
     }
 
