@@ -2,14 +2,18 @@
 
 namespace App\Models;
 
+use App\Helpers\Jalali;
+use Database\Factories\GameFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 class Game extends Model
 {
-    /** @use HasFactory<\Database\Factories\GameFactory> */
+    /** @use HasFactory<GameFactory> */
     use HasFactory;
 
     public function consoles(): BelongsToMany
@@ -26,9 +30,37 @@ class Game extends Model
     }
 
     public function variants(): HasMany
-{
-    return $this->hasMany(GameVariant::class);
-}
+    {
+        return $this->hasMany(GameVariant::class);
+    }
+
+    public function ratings(): HasMany
+    {
+        return $this->hasMany(GameRating::class);
+    }
+
+    /**
+     * Preload the aggregates used by toCatalogArray() so listing many games
+     * does not run several extra queries per game.
+     */
+    public function scopeWithCatalogStats(Builder $query, ?User $user = null): Builder
+    {
+        $query->with(['variants.platform'])
+            ->withAvg('ratings', 'rating')
+            ->withCount(['ratings', 'orderItems']);
+
+        if ($user) {
+            $query->addSelect([
+                'user_rating' => GameRating::query()
+                    ->select('rating')
+                    ->whereColumn('game_id', 'games.id')
+                    ->where('user_id', $user->id)
+                    ->limit(1),
+            ]);
+        }
+
+        return $query;
+    }
 
     protected $fillable = [
         'title',
@@ -71,12 +103,12 @@ class Game extends Model
     protected static function booted(): void
     {
         static::creating(function (Game $game) {
-            if (empty($game->slug) && !empty($game->title)) {
-                $baseSlug = \Illuminate\Support\Str::slug($game->title) ?: 'game-' . uniqid();
+            if (empty($game->slug) && ! empty($game->title)) {
+                $baseSlug = Str::slug($game->title) ?: 'game-'.uniqid();
                 $slug = $baseSlug;
                 $counter = 1;
                 while (static::where('slug', $slug)->exists()) {
-                    $slug = $baseSlug . '-' . $counter++;
+                    $slug = $baseSlug.'-'.$counter++;
                 }
                 $game->slug = $slug;
             }
@@ -88,10 +120,16 @@ class Game extends Model
         return $this->where($field ?? (is_numeric($value) ? 'id' : 'slug'), $value)->firstOrFail();
     }
 
-    public function toCatalogArray(?\App\Models\User $currentUser = null): array
+    public function toCatalogArray(?User $currentUser = null): array
     {
-        $avgRating = \Illuminate\Support\Facades\DB::table('game_ratings')->where('game_id', $this->id)->avg('rating');
-        $ratingCount = \Illuminate\Support\Facades\DB::table('game_ratings')->where('game_id', $this->id)->count();
+        $attributes = $this->getAttributes();
+
+        $avgRating = array_key_exists('ratings_avg_rating', $attributes)
+            ? $attributes['ratings_avg_rating']
+            : $this->ratings()->avg('rating');
+        $ratingCount = array_key_exists('ratings_count', $attributes)
+            ? (int) $attributes['ratings_count']
+            : $this->ratings()->count();
 
         $rate = $avgRating ? round((float) $avgRating, 1) : 4.8;
         $count = $ratingCount > 0 ? $ratingCount : 12;
@@ -99,13 +137,14 @@ class Game extends Model
         $userRating = null;
         $user = $currentUser ?? auth('sanctum')->user();
         if ($user) {
-            $userRating = \Illuminate\Support\Facades\DB::table('game_ratings')
-                ->where('game_id', $this->id)
-                ->where('user_id', $user->id)
-                ->value('rating');
+            $userRating = array_key_exists('user_rating', $attributes)
+                ? $attributes['user_rating']
+                : $this->ratings()->where('user_id', $user->id)->value('rating');
         }
 
-        $sales = $this->sales ?? $this->orderItems()->count();
+        $sales = $this->sales ?? (array_key_exists('order_items_count', $attributes)
+            ? (int) $attributes['order_items_count']
+            : $this->orderItems()->count());
 
         $genreMap = [
             'action' => 'اکشن',
@@ -126,7 +165,7 @@ class Game extends Model
 
         $developer = $this->developer ?: 'PlayStation Studios';
         $releaseDate = $this->release_date ? $this->release_date->format('Y-m-d') : '2023-10-20';
-        $releaseDateJalali = $this->release_date ? \App\Helpers\Jalali::fromDateTime($this->release_date) : '۱۴۰۲/۰۷/۲۸';
+        $releaseDateJalali = $this->release_date ? Jalali::fromDateTime($this->release_date) : '۱۴۰۲/۰۷/۲۸';
 
         $defaultScreenshots = [
             url('storage/screenshots/gow-1.jpg'),
@@ -134,10 +173,12 @@ class Game extends Model
         ];
 
         $screenshots = [];
-        if (!empty($this->screenshots) && is_array($this->screenshots)) {
+        if (! empty($this->screenshots) && is_array($this->screenshots)) {
             foreach ($this->screenshots as $img) {
-                if (empty($img)) continue;
-                $screenshots[] = \Illuminate\Support\Str::startsWith($img, ['http://', 'https://'])
+                if (empty($img)) {
+                    continue;
+                }
+                $screenshots[] = Str::startsWith($img, ['http://', 'https://'])
                     ? $img
                     : url(ltrim($img, '/'));
             }
@@ -170,7 +211,7 @@ class Game extends Model
         $basePlatformSlug = $firstVariant?->platform?->slug ?? 'ps5';
 
         $imageUrl = $this->image
-            ? (\Illuminate\Support\Str::startsWith($this->image, ['http://', 'https://']) ? $this->image : url('storage/' . ltrim($this->image, '/')))
+            ? (Str::startsWith($this->image, ['http://', 'https://']) ? $this->image : url('storage/'.ltrim($this->image, '/')))
             : url('/images/logosite.png');
 
         return [
@@ -201,8 +242,8 @@ class Game extends Model
             'userRating' => $userRating ? (int) $userRating : null,
             'user_rating' => $userRating ? (int) $userRating : null,
             'sales' => (int) $sales,
-            'modes' => (!empty($this->modes) && is_array($this->modes)) ? array_values($this->modes) : ['تک‌نفره', 'آنلاین'],
-            'languages' => (!empty($this->languages) && is_array($this->languages)) ? array_values($this->languages) : ['انگلیسی', 'زیرنویس فارسی'],
+            'modes' => (! empty($this->modes) && is_array($this->modes)) ? array_values($this->modes) : ['تک‌نفره', 'آنلاین'],
+            'languages' => (! empty($this->languages) && is_array($this->languages)) ? array_values($this->languages) : ['انگلیسی', 'زیرنویس فارسی'],
             'image' => $imageUrl,
             'cover' => $imageUrl,
             'poster' => $imageUrl,
@@ -211,6 +252,4 @@ class Game extends Model
             'variants' => $variantList,
         ];
     }
-
-
 }

@@ -19,8 +19,7 @@ class CheckoutService
         private WalletService $walletService,
         private PaymentService $paymentService,
         private PaymentGateway $paymentGateway
-    ) {
-    }
+    ) {}
 
     /**
      * Checkout using wallet.
@@ -59,13 +58,13 @@ class CheckoutService
             $this->walletService->debit(
                 $user,
                 $snapshot['total'],
-                'payment-' . $payment->id,
+                'payment-'.$payment->id,
                 'Payment for order'
             );
 
             $this->paymentService->markAsPaid(
                 $payment,
-                'wallet-' . $payment->id
+                'wallet-'.$payment->id
             );
 
             $order = $this->createOrderFromSnapshot(
@@ -179,7 +178,8 @@ class CheckoutService
 
             if (
                 $payment->method !== PaymentMethod::Gateway ||
-                $payment->order_id !== null
+                $payment->order_id !== null ||
+                ! empty($payment->metadata['items'])
             ) {
                 throw new RuntimeException(
                     'This payment is not a valid wallet charge.'
@@ -187,7 +187,7 @@ class CheckoutService
             }
 
             if (
-                !$this->paymentGateway->verify(
+                ! $this->paymentGateway->verify(
                     $payment,
                     $transactionId
                 )
@@ -206,7 +206,7 @@ class CheckoutService
             $this->walletService->credit(
                 $payment->user,
                 (float) $payment->amount,
-                'payment-' . $payment->id,
+                'payment-'.$payment->id,
                 'Wallet charged successfully'
             );
 
@@ -248,7 +248,7 @@ class CheckoutService
             }
 
             if (
-                !$this->paymentGateway->verify(
+                ! $this->paymentGateway->verify(
                     $payment,
                     $transactionId
                 )
@@ -261,10 +261,10 @@ class CheckoutService
             $metadata = $payment->metadata;
 
             if (
-                !is_array($metadata) ||
+                ! is_array($metadata) ||
                 empty($metadata['console_type']) ||
                 empty($metadata['items']) ||
-                !is_array($metadata['items'])
+                ! is_array($metadata['items'])
             ) {
                 throw new RuntimeException(
                     'Payment metadata is invalid.'
@@ -321,8 +321,8 @@ class CheckoutService
         $consoleType = $orderData['console_type'] ?? null;
 
         if (
-            !$consoleType ||
-            !is_array($variantIds) ||
+            ! $consoleType ||
+            ! is_array($variantIds) ||
             count($variantIds) === 0
         ) {
             throw new RuntimeException(
@@ -368,7 +368,7 @@ class CheckoutService
                 || ($variantSlug === 'ps4' && in_array($platformSlug, ['ps4', 'playstation-4'], true))
                 || ($platformSlug === 'other' || $consoleType === 'other' || $consoleType === 'سایر کنسول‌ها');
 
-            if (!$isMatch) {
+            if (! $isMatch) {
                 throw new RuntimeException(
                     'A selected game version does not match your console.'
                 );
@@ -451,14 +451,14 @@ class CheckoutService
 
         foreach ($items as $item) {
             if (
-                !isset(
+                ! isset(
                     $item['game_variant_id'],
                     $item['game_id'],
                     $item['quantity'],
                     $item['price']
                 ) ||
-                !is_numeric($item['quantity']) ||
-                !is_numeric($item['price']) ||
+                ! is_numeric($item['quantity']) ||
+                ! is_numeric($item['price']) ||
                 (int) $item['quantity'] < 1 ||
                 (float) $item['price'] < 0
             ) {
@@ -480,4 +480,3 @@ class CheckoutService
         return (int) round((float) $amount * 100);
     }
 }
-

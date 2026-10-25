@@ -16,4 +16,18 @@ class Platform extends Model
     {
         return $this->hasMany(GameVariant::class);
     }
+
+    /**
+     * Find a platform by its exact name or slug, querying the (small)
+     * platforms table only once per request.
+     */
+    public static function findByNameOrSlug(?string $value): ?self
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return once(fn () => static::query()->orderBy('id')->get())
+            ->first(fn (Platform $platform) => $platform->name === $value || $platform->slug === $value);
+    }
 }

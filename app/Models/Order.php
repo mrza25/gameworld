@@ -2,15 +2,14 @@
 
 namespace App\Models;
 
+use App\Helpers\Jalali;
 use App\OrderStatus;
 use App\PaymentStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-
-
-
+use Illuminate\Support\Str;
 
 class Order extends Model
 {
@@ -67,10 +66,11 @@ class Order extends Model
             $this->update(['status' => $newStatus]);
         }
     }
-public function payments(): HasMany
-{
-    return $this->hasMany(Payment::class);
-}
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class);
+    }
 
     public function toApiArray(): array
     {
@@ -98,14 +98,12 @@ public function payments(): HasMany
 
         $items = $this->relationLoaded('items') ? $this->items : $this->items()->with(['game', 'gameVariant.platform'])->get();
 
-        $platform = \App\Models\Platform::where('name', $this->console_type)
-            ->orWhere('slug', $this->console_type)
-            ->first();
-        $consoleSlug = $platform?->slug ?? \Illuminate\Support\Str::slug($this->console_type);
+        $platform = Platform::findByNameOrSlug($this->console_type);
+        $consoleSlug = $platform?->slug ?? Str::slug($this->console_type);
 
         return [
             'id' => $this->id,
-            'orderId' => '#' . $this->id,
+            'orderId' => '#'.$this->id,
             'userId' => $this->user_id,
             'name' => $this->user?->name,
             'phone' => $this->user?->phonenumber,
@@ -118,7 +116,7 @@ public function payments(): HasMany
             'statusRaw' => $statusValue,
             'paymentStatus' => $paymentMap[$paymentValue] ?? $paymentValue,
             'paymentStatusRaw' => $paymentValue,
-            'date' => \App\Helpers\Jalali::fromDateTime($this->created_at),
+            'date' => Jalali::fromDateTime($this->created_at),
             'time' => $this->created_at?->format('H:i'),
             'created_at' => $this->created_at?->toIso8601String(),
             'items' => $items->map(fn ($item) => [

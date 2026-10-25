@@ -2,11 +2,15 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Helpers\Jalali;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -47,20 +51,20 @@ class AuthController extends Controller
 
         $phone = $this->normalizePhone($validated['phone'] ?? $validated['phonenumber'] ?? '');
 
-        if (!$phone) {
+        if (! $phone) {
             throw ValidationException::withMessages([
                 'phone' => 'شماره موبایل الزامی است.',
             ]);
         }
 
         if ($request->filled('code')) {
-            $code = trim($validated['code']);
-            if (!$this->isOtpValid($phone, $code)) {
+            $code = trim($this->normalizeDigits($validated['code']));
+            if (! $this->isOtpValid($phone, $code)) {
                 throw ValidationException::withMessages([
                     'code' => 'کد تأیید نامعتبر یا منقضی شده است.',
                 ]);
             }
-            \Illuminate\Support\Facades\Cache::forget('otp:' . $phone);
+            Cache::forget('otp:'.$phone);
         }
 
         if (User::where('phonenumber', $phone)->exists()) {
@@ -69,9 +73,9 @@ class AuthController extends Controller
             ]);
         }
 
-        $fullName = trim($validated['name'] ?? ($validated['firstName'] . ' ' . ($validated['lastName'] ?? '')));
-        if (!$fullName) {
-            $fullName = 'کاربر ' . substr($phone, -4);
+        $fullName = trim($validated['name'] ?? ($validated['firstName'].' '.($validated['lastName'] ?? '')));
+        if (! $fullName) {
+            $fullName = 'کاربر '.substr($phone, -4);
         }
 
         $user = User::create([
@@ -103,7 +107,7 @@ class AuthController extends Controller
 
         $user = User::where('phonenumber', $phone)->first();
 
-        if (!$user || !Hash::check($validated['password'], $user->password)) {
+        if (! $user || ! Hash::check($validated['password'], $user->password)) {
             return response()->json([
                 'ok' => false,
                 'error' => 'شماره موبایل یا رمز عبور اشتباه است.',
@@ -148,7 +152,7 @@ class AuthController extends Controller
     {
         $phoneInput = $request->input('phone') ?? $request->input('phonenumber') ?? $request->input('mobile');
 
-        if (!$phoneInput) {
+        if (! $phoneInput) {
             throw ValidationException::withMessages([
                 'phone' => 'شماره موبایل الزامی است.',
             ]);
@@ -163,15 +167,19 @@ class AuthController extends Controller
         }
 
         $code = (string) random_int(10000, 99999);
-        \Illuminate\Support\Facades\Cache::put('otp:' . $phone, $code, now()->addMinutes(2));
-        \Illuminate\Support\Facades\Log::info("OTP Code for {$phone}: {$code}");
+        Cache::put('otp:'.$phone, $code, now()->addMinutes(2));
+        Cache::forget('otp-attempts:'.$phone);
+
+        if ($this->exposesDebugOtp()) {
+            Log::info("OTP Code for {$phone}: {$code}");
+        }
 
         return response()->json([
             'ok' => true,
             'message' => 'کد تأیید ۵ رقمی با موفقیت ارسال شد.',
             'expires_in' => 120,
-            'code' => config('app.debug') ? $code : null,
-            'debug_code' => config('app.debug') ? $code : null,
+            'code' => $this->exposesDebugOtp() ? $code : null,
+            'debug_code' => $this->exposesDebugOtp() ? $code : null,
         ]);
     }
 
@@ -183,7 +191,7 @@ class AuthController extends Controller
         $phoneInput = $request->input('phone') ?? $request->input('phonenumber') ?? $request->input('mobile');
         $codeInput = $request->input('code') ?? $request->input('otp');
 
-        if (!$phoneInput || !$codeInput) {
+        if (! $phoneInput || ! $codeInput) {
             throw ValidationException::withMessages([
                 'phone' => 'شماره موبایل و کد تأیید الزامی هستند.',
             ]);
@@ -192,7 +200,7 @@ class AuthController extends Controller
         $phone = $this->normalizePhone((string) $phoneInput);
         $code = trim($this->normalizeDigits((string) $codeInput));
 
-        if (!$this->isOtpValid($phone, $code)) {
+        if (! $this->isOtpValid($phone, $code)) {
             return response()->json([
                 'ok' => false,
                 'message' => 'کد تأیید نامعتبر یا منقضی شده است.',
@@ -215,7 +223,7 @@ class AuthController extends Controller
         $phoneInput = $request->input('phone') ?? $request->input('phonenumber') ?? $request->input('mobile');
         $codeInput = $request->input('code') ?? $request->input('otp');
 
-        if (!$phoneInput || !$codeInput) {
+        if (! $phoneInput || ! $codeInput) {
             throw ValidationException::withMessages([
                 'phone' => 'شماره موبایل و کد تأیید الزامی است.',
             ]);
@@ -224,7 +232,7 @@ class AuthController extends Controller
         $phone = $this->normalizePhone((string) $phoneInput);
         $code = trim($this->normalizeDigits((string) $codeInput));
 
-        if (!$this->isOtpValid($phone, $code)) {
+        if (! $this->isOtpValid($phone, $code)) {
             return response()->json([
                 'ok' => false,
                 'message' => 'کد تأیید نامعتبر یا منقضی شده است.',
@@ -232,19 +240,19 @@ class AuthController extends Controller
             ], 422);
         }
 
-        \Illuminate\Support\Facades\Cache::forget('otp:' . $phone);
+        Cache::forget('otp:'.$phone);
 
         $isNew = false;
         $user = User::where('phonenumber', $phone)->first();
 
-        if (!$user) {
+        if (! $user) {
             $isNew = true;
             $nameInput = $request->input('name') ?? $request->input('fullName');
-            $name = trim((string) $nameInput) ?: 'کاربر ' . substr($phone, -4);
+            $name = trim((string) $nameInput) ?: 'کاربر '.substr($phone, -4);
             $user = User::create([
                 'name' => $name,
                 'phonenumber' => $phone,
-                'password' => Hash::make(\Illuminate\Support\Str::random(16)),
+                'password' => Hash::make(Str::random(16)),
                 'is_admin' => false,
             ]);
 
@@ -277,9 +285,9 @@ class AuthController extends Controller
         ]);
 
         $phone = $this->normalizePhone($validated['phone']);
-        $code = trim($validated['code']);
+        $code = trim($this->normalizeDigits($validated['code']));
 
-        if (!$this->isOtpValid($phone, $code)) {
+        if (! $this->isOtpValid($phone, $code)) {
             return response()->json([
                 'ok' => false,
                 'error' => 'کد تأیید نامعتبر یا منقضی شده است.',
@@ -287,14 +295,14 @@ class AuthController extends Controller
         }
 
         $user = User::where('phonenumber', $phone)->first();
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'ok' => false,
                 'error' => 'کاربری با این شماره یافت نشد.',
             ], 404);
         }
 
-        \Illuminate\Support\Facades\Cache::forget('otp:' . $phone);
+        Cache::forget('otp:'.$phone);
 
         $user->update([
             'password' => Hash::make($validated['password']),
@@ -319,11 +327,11 @@ class AuthController extends Controller
         ]);
 
         $updates = [];
-        if (!empty($validated['name'])) {
+        if (! empty($validated['name'])) {
             $updates['name'] = trim($validated['name']);
         }
 
-        if (!empty($validated['phone'])) {
+        if (! empty($validated['phone'])) {
             $phone = $this->normalizePhone($validated['phone']);
             if ($phone !== $user->phonenumber) {
                 if (User::where('phonenumber', $phone)->where('id', '!=', $user->id)->exists()) {
@@ -335,7 +343,7 @@ class AuthController extends Controller
             }
         }
 
-        if (!empty($updates)) {
+        if (! empty($updates)) {
             $user->update($updates);
         }
 
@@ -380,7 +388,7 @@ class AuthController extends Controller
             'password' => ['required', 'string', 'min:6'],
         ]);
 
-        if (!Hash::check($validated['current_password'], $user->password)) {
+        if (! Hash::check($validated['current_password'], $user->password)) {
             return response()->json([
                 'ok' => false,
                 'error' => 'رمز عبور فعلی نادرست است.',
@@ -397,15 +405,41 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * Validate an OTP code. After too many wrong guesses the code is burned
+     * so a 5-digit code cannot be brute-forced within its lifetime.
+     */
     private function isOtpValid(string $phone, string $code): bool
     {
-        // Support bypass in debug/testing mode for quick automated testing
-        if (config('app.debug') && in_array($code, ['11111', '12345'], true)) {
+        // Fixed bypass codes are only honoured on local/testing environments.
+        if ($this->exposesDebugOtp() && in_array($code, ['11111', '12345'], true)) {
             return true;
         }
 
-        $cached = \Illuminate\Support\Facades\Cache::get('otp:' . $phone);
-        return $cached !== null && $cached === $code;
+        $cache = Cache::store();
+        $cached = $cache->get('otp:'.$phone);
+
+        if (is_string($cached) && hash_equals($cached, $code)) {
+            $cache->forget('otp-attempts:'.$phone);
+
+            return true;
+        }
+
+        if ($cached !== null) {
+            $cache->add('otp-attempts:'.$phone, 0, now()->addMinutes(2));
+
+            if ($cache->increment('otp-attempts:'.$phone) >= 5) {
+                $cache->forget('otp:'.$phone);
+                $cache->forget('otp-attempts:'.$phone);
+            }
+        }
+
+        return false;
+    }
+
+    private function exposesDebugOtp(): bool
+    {
+        return config('app.debug') && app()->environment(['local', 'testing']);
     }
 
     private function normalizeDigits(string $str): string
@@ -415,6 +449,7 @@ class AuthController extends Controller
         $en = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
         $str = str_replace($fa, $en, $str);
+
         return str_replace($ar, $en, $str);
     }
 
@@ -431,7 +466,7 @@ class AuthController extends Controller
 
         // Normalize Iranian numbers (+989... -> 09...)
         if (str_starts_with($digits, '989')) {
-            $digits = '0' . substr($digits, 2);
+            $digits = '0'.substr($digits, 2);
         }
 
         return $digits;
@@ -452,7 +487,7 @@ class AuthController extends Controller
             'walletBalance' => (float) $wallet->balance,
             'wallet_balance' => (float) $wallet->balance,
             'joinDate' => $user->created_at?->format('Y-m-d'),
-            'joined_at' => \App\Helpers\Jalali::fromDateTime($user->created_at),
+            'joined_at' => Jalali::fromDateTime($user->created_at),
             'created_at' => $user->created_at?->toIso8601String(),
         ];
     }
@@ -483,4 +518,3 @@ class AuthController extends Controller
         return response()->json($payload, $status)->withCookie($cookie);
     }
 }
-

@@ -4,41 +4,33 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Game;
-use App\Models\GameVariant;
 use App\Models\Order;
 use App\Models\Platform;
 use App\Models\User;
+use App\Models\WalletTransaction;
 use App\Notifications\OrderStatusUpdated;
 use App\OrderStatus;
 use App\PaymentStatus;
+use App\Services\WalletService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class AdminController extends Controller
 {
+    public function __construct(
+        private WalletService $walletService
+    ) {}
+
     /**
      * Admin Dashboard statistics and recent orders.
      */
     public function dashboard(): JsonResponse
     {
-        $todayOrders = Order::whereDate('created_at', today())->count();
-        $totalOrders = Order::count();
-        $totalUsers = User::count();
-        $totalGames = Game::count();
-
-        $stats = [
-            'total_orders' => $totalOrders,
-            'today_orders' => $todayOrders,
-            'total_users' => $totalUsers,
-            'total_games' => $totalGames,
-            'games' => $totalGames,
-            'orders' => $totalOrders,
-            'users' => $totalUsers,
-            'pending_orders' => Order::where('status', OrderStatus::Pending)->count(),
-            'processing_orders' => Order::where('status', OrderStatus::Processing)->count(),
-            'completed_orders' => Order::where('status', OrderStatus::Completed)->count(),
-        ];
+        $stats = $this->buildDashboardStats();
 
         $recentOrders = Order::with(['user', 'items.game', 'items.gameVariant.platform'])
             ->latest()
@@ -50,10 +42,10 @@ class AdminController extends Controller
             'ok' => true,
             'stats' => $stats,
             'recentOrders' => $recentOrders,
-            'total_orders' => $totalOrders,
-            'today_orders' => $todayOrders,
-            'total_users' => $totalUsers,
-            'total_games' => $totalGames,
+            'total_orders' => $stats['total_orders'],
+            'today_orders' => $stats['today_orders'],
+            'total_users' => $stats['total_users'],
+            'total_games' => $stats['total_games'],
         ]);
     }
 
@@ -62,31 +54,15 @@ class AdminController extends Controller
      */
     public function dashboardStats(): JsonResponse
     {
-        $todayOrders = Order::whereDate('created_at', today())->count();
-        $totalOrders = Order::count();
-        $totalUsers = User::count();
-        $totalGames = Game::count();
-
-        $stats = [
-            'total_orders' => $totalOrders,
-            'today_orders' => $todayOrders,
-            'total_users' => $totalUsers,
-            'total_games' => $totalGames,
-            'games' => $totalGames,
-            'orders' => $totalOrders,
-            'users' => $totalUsers,
-            'pending_orders' => Order::where('status', OrderStatus::Pending)->count(),
-            'processing_orders' => Order::where('status', OrderStatus::Processing)->count(),
-            'completed_orders' => Order::where('status', OrderStatus::Completed)->count(),
-        ];
+        $stats = $this->buildDashboardStats();
 
         return response()->json([
             'ok' => true,
             'stats' => $stats,
-            'total_orders' => $totalOrders,
-            'today_orders' => $todayOrders,
-            'total_users' => $totalUsers,
-            'total_games' => $totalGames,
+            'total_orders' => $stats['total_orders'],
+            'today_orders' => $stats['today_orders'],
+            'total_users' => $stats['total_users'],
+            'total_games' => $stats['total_games'],
         ]);
     }
 
@@ -126,12 +102,12 @@ class AdminController extends Controller
                 }
                 $q->orWhereHas('user', function ($uq) use ($search) {
                     $uq->where('name', 'like', "%{$search}%")
-                       ->orWhere('phonenumber', 'like', "%{$search}%");
+                        ->orWhere('phonenumber', 'like', "%{$search}%");
                 });
             });
         }
 
-        $orders = $query->paginate($request->integer('per_page', 15));
+        $orders = $query->paginate($this->perPage($request));
         $orders->getCollection()->transform(fn (Order $order) => $order->toApiArray());
 
         $paginatorArray = $orders->toArray();
@@ -189,7 +165,7 @@ class AdminController extends Controller
 
         $statusChanged = false;
 
-        if (!empty($validated['status'])) {
+        if (! empty($validated['status'])) {
             $statusKey = $this->resolveStatusKey($validated['status']);
             $oldStatus = $order->status instanceof \BackedEnum ? $order->status->value : $order->status;
             $order->update(['status' => $statusKey]);
@@ -198,12 +174,12 @@ class AdminController extends Controller
             }
         }
 
-        if (!empty($validated['payment_status'])) {
+        if (! empty($validated['payment_status'])) {
             $paymentKey = $this->resolvePaymentStatusKey($validated['payment_status']);
             $order->update(['payment_status' => $paymentKey]);
         }
 
-        if (!empty($validated['install_statuses']) && is_array($validated['install_statuses'])) {
+        if (! empty($validated['install_statuses']) && is_array($validated['install_statuses'])) {
             foreach ($validated['install_statuses'] as $itemStatus) {
                 $itemId = $itemStatus['item_id'] ?? $itemStatus['id'] ?? null;
                 $newInstallStatus = $itemStatus['install_status'] ?? $itemStatus['status'] ?? null;
@@ -336,7 +312,7 @@ class AdminController extends Controller
             $q = $request->search;
             $query->where(function ($sq) use ($q) {
                 $sq->where('name', 'like', "%{$q}%")
-                   ->orWhere('phonenumber', 'like', "%{$q}%");
+                    ->orWhere('phonenumber', 'like', "%{$q}%");
             });
         }
 
@@ -348,7 +324,7 @@ class AdminController extends Controller
             $query->whereDate('created_at', '<=', $request->to_date);
         }
 
-        $users = $query->paginate($request->integer('per_page', 15));
+        $users = $query->paginate($this->perPage($request));
         $paginatorArray = $users->toArray();
         $meta = [
             'current_page' => $users->currentPage(),
@@ -381,7 +357,7 @@ class AdminController extends Controller
         $user = User::create([
             'name' => $validated['name'],
             'phonenumber' => $validated['phone'],
-            'password' => \Illuminate\Support\Facades\Hash::make($validated['password']),
+            'password' => Hash::make($validated['password']),
             'is_admin' => $validated['is_admin'] ?? false,
         ]);
 
@@ -403,21 +379,28 @@ class AdminController extends Controller
 
         $validated = $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
-            'phone' => ['nullable', 'string', 'max:20', 'unique:users,phonenumber,' . $id],
+            'phone' => ['nullable', 'string', 'max:20', 'unique:users,phonenumber,'.$id],
             'password' => ['nullable', 'string', 'min:6'],
             'is_admin' => ['nullable', 'boolean'],
             'wallet_balance' => ['nullable', 'numeric', 'min:0'],
         ]);
 
-        if (isset($validated['name'])) $user->name = $validated['name'];
-        if (isset($validated['phone'])) $user->phonenumber = $validated['phone'];
-        if (!empty($validated['password'])) $user->password = \Illuminate\Support\Facades\Hash::make($validated['password']);
-        if (isset($validated['is_admin'])) $user->is_admin = $validated['is_admin'];
+        if (isset($validated['name'])) {
+            $user->name = $validated['name'];
+        }
+        if (isset($validated['phone'])) {
+            $user->phonenumber = $validated['phone'];
+        }
+        if (! empty($validated['password'])) {
+            $user->password = Hash::make($validated['password']);
+        }
+        if (isset($validated['is_admin'])) {
+            $user->is_admin = $validated['is_admin'];
+        }
         $user->save();
 
         if (isset($validated['wallet_balance'])) {
-            $wallet = $user->wallet()->firstOrCreate(['user_id' => $user->id], ['balance' => 0]);
-            $wallet->update(['balance' => $validated['wallet_balance']]);
+            $this->adjustWalletBalance($user, (float) $validated['wallet_balance']);
         }
 
         return response()->json([
@@ -453,14 +436,14 @@ class AdminController extends Controller
      */
     public function games(Request $request): JsonResponse
     {
-        $query = Game::with(['variants.platform'])->latest();
+        $query = Game::query()->withCatalogStats()->latest();
 
         if ($request->filled('search')) {
             $q = $request->search;
             $query->where(function ($sq) use ($q) {
                 $sq->where('title', 'like', "%{$q}%")
-                   ->orWhere('genre', 'like', "%{$q}%")
-                   ->orWhere('developer', 'like', "%{$q}%");
+                    ->orWhere('genre', 'like', "%{$q}%")
+                    ->orWhere('developer', 'like', "%{$q}%");
             });
         }
 
@@ -484,7 +467,7 @@ class AdminController extends Controller
             });
         }
 
-        $games = $query->paginate($request->integer('per_page', 15));
+        $games = $query->paginate($this->perPage($request));
         $games->getCollection()->transform(fn (Game $game) => $game->toCatalogArray());
 
         $paginatorArray = $games->toArray();
@@ -529,19 +512,19 @@ class AdminController extends Controller
      */
     public function storeGame(Request $request): JsonResponse
     {
-        if (!$request->filled('title') && $request->filled('name')) {
+        if (! $request->filled('title') && $request->filled('name')) {
             $request->merge(['title' => $request->input('name')]);
         }
-        if (!$request->filled('developer') && $request->filled('brand')) {
+        if (! $request->filled('developer') && $request->filled('brand')) {
             $request->merge(['developer' => $request->input('brand')]);
         }
-        if (!$request->filled('age_rating') && $request->filled('age')) {
+        if (! $request->filled('age_rating') && $request->filled('age')) {
             $request->merge(['age_rating' => (int) $request->input('age')]);
         }
-        if (!$request->filled('release_date') && $request->filled('releaseDate')) {
+        if (! $request->filled('release_date') && $request->filled('releaseDate')) {
             $request->merge(['release_date' => $request->input('releaseDate')]);
         }
-        if (!$request->has('is_available') && $request->has('available')) {
+        if (! $request->has('is_available') && $request->has('available')) {
             $request->merge(['is_available' => $request->boolean('available')]);
         }
 
@@ -550,14 +533,14 @@ class AdminController extends Controller
         if (is_string($rawModes)) {
             $rawModes = json_validate($rawModes) ? json_decode($rawModes, true) : array_map('trim', explode(',', $rawModes));
         }
-        $modes = (!empty($rawModes) && is_array($rawModes)) ? array_values(array_filter($rawModes)) : ['تک‌نفره', 'آنلاین'];
+        $modes = (! empty($rawModes) && is_array($rawModes)) ? array_values(array_filter($rawModes)) : ['تک‌نفره', 'آنلاین'];
 
         // Parse languages (array or string)
         $rawLanguages = $request->input('languages');
         if (is_string($rawLanguages)) {
             $rawLanguages = json_validate($rawLanguages) ? json_decode($rawLanguages, true) : array_map('trim', explode(',', $rawLanguages));
         }
-        $languages = (!empty($rawLanguages) && is_array($rawLanguages)) ? array_values(array_filter($rawLanguages)) : ['انگلیسی', 'زیرنویس فارسی'];
+        $languages = (! empty($rawLanguages) && is_array($rawLanguages)) ? array_values(array_filter($rawLanguages)) : ['انگلیسی', 'زیرنویس فارسی'];
 
         $rawVariants = $request->input('variants') ?? $request->input('platforms') ?? null;
         if (empty($rawVariants) && $request->filled('platform')) {
@@ -594,7 +577,7 @@ class AdminController extends Controller
         );
 
         $normalizedVariants = [];
-        if (!empty($rawVariants) && is_array($rawVariants)) {
+        if (! empty($rawVariants) && is_array($rawVariants)) {
             foreach ($rawVariants as $v) {
                 if (is_string($v) || is_numeric($v)) {
                     $platform = Platform::where('slug', $v)
@@ -612,19 +595,19 @@ class AdminController extends Controller
                     }
                 } elseif (is_array($v)) {
                     $platformId = $v['platform_id'] ?? null;
-                    if (!$platformId && !empty($v['console'])) {
+                    if (! $platformId && ! empty($v['console'])) {
                         $platform = Platform::where('slug', $v['console'])
                             ->orWhere('name', $v['console'])
                             ->first();
                         $platformId = $platform?->id;
                     }
-                    if (!$platformId && !empty($v['platform'])) {
+                    if (! $platformId && ! empty($v['platform'])) {
                         $platform = Platform::where('slug', $v['platform'])
                             ->orWhere('name', $v['platform'])
                             ->first();
                         $platformId = $platform?->id;
                     }
-                    if (!$platformId && !empty($v['slug'])) {
+                    if (! $platformId && ! empty($v['slug'])) {
                         $platform = Platform::where('slug', $v['slug'])->first();
                         $platformId = $platform?->id;
                     }
@@ -699,7 +682,7 @@ class AdminController extends Controller
 
         $slug = $validated['slug'] ?? Str::slug($validated['title']);
         if (Game::where('slug', $slug)->exists()) {
-            $slug .= '-' . Str::random(4);
+            $slug .= '-'.Str::random(4);
         }
 
         $releaseDate = $validated['release_date'] ?? $validated['releaseDate'] ?? now()->format('Y-m-d');
@@ -752,19 +735,19 @@ class AdminController extends Controller
             ->orWhere('slug', (string) $id)
             ->firstOrFail();
 
-        if (!$request->filled('title') && $request->filled('name')) {
+        if (! $request->filled('title') && $request->filled('name')) {
             $request->merge(['title' => $request->input('name')]);
         }
-        if (!$request->filled('developer') && $request->filled('brand')) {
+        if (! $request->filled('developer') && $request->filled('brand')) {
             $request->merge(['developer' => $request->input('brand')]);
         }
-        if (!$request->filled('age_rating') && $request->filled('age')) {
+        if (! $request->filled('age_rating') && $request->filled('age')) {
             $request->merge(['age_rating' => (int) $request->input('age')]);
         }
-        if (!$request->filled('release_date') && $request->filled('releaseDate')) {
+        if (! $request->filled('release_date') && $request->filled('releaseDate')) {
             $request->merge(['release_date' => $request->input('releaseDate')]);
         }
-        if (!$request->has('is_available') && $request->has('available')) {
+        if (! $request->has('is_available') && $request->has('available')) {
             $request->merge(['is_available' => $request->boolean('available')]);
         }
 
@@ -784,7 +767,7 @@ class AdminController extends Controller
             ? (float) $request->input('size')
             : (float) ($request->input('file_size') ?? $request->input('fileSize') ?? (is_array($rawVariants) && isset($rawVariants[0]['size']) ? $rawVariants[0]['size'] : $game->size));
 
-        if (!empty($rawVariants) && is_array($rawVariants)) {
+        if (! empty($rawVariants) && is_array($rawVariants)) {
             $normalizedVariants = [];
             foreach ($rawVariants as $v) {
                 if (is_string($v) || is_numeric($v)) {
@@ -803,19 +786,19 @@ class AdminController extends Controller
                     }
                 } elseif (is_array($v)) {
                     $platformId = $v['platform_id'] ?? null;
-                    if (!$platformId && !empty($v['console'])) {
+                    if (! $platformId && ! empty($v['console'])) {
                         $platform = Platform::where('slug', $v['console'])
                             ->orWhere('name', $v['console'])
                             ->first();
                         $platformId = $platform?->id;
                     }
-                    if (!$platformId && !empty($v['platform'])) {
+                    if (! $platformId && ! empty($v['platform'])) {
                         $platform = Platform::where('slug', $v['platform'])
                             ->orWhere('name', $v['platform'])
                             ->first();
                         $platformId = $platform?->id;
                     }
-                    if (!$platformId && !empty($v['slug'])) {
+                    if (! $platformId && ! empty($v['slug'])) {
                         $platform = Platform::where('slug', $v['slug'])->first();
                         $platformId = $platform?->id;
                     }
@@ -829,7 +812,7 @@ class AdminController extends Controller
                     }
                 }
             }
-            if (!empty($normalizedVariants)) {
+            if (! empty($normalizedVariants)) {
                 $request->merge(['variants' => $normalizedVariants]);
             }
         }
@@ -875,14 +858,30 @@ class AdminController extends Controller
             $game->screenshots = $request->input('screenshots');
         }
 
-        if (isset($validated['title'])) $game->title = $validated['title'];
-        if (isset($validated['genre'])) $game->genre = $validated['genre'];
-        if (isset($validated['developer'])) $game->developer = $validated['developer'];
-        if (isset($validated['release_date'])) $game->release_date = $validated['release_date'];
-        if (isset($validated['releaseDate'])) $game->release_date = $validated['releaseDate'];
-        if (isset($validated['description'])) $game->description = $validated['description'];
-        if (isset($validated['age_rating'])) $game->age_rating = $validated['age_rating'];
-        if (isset($validated['is_available'])) $game->is_available = $validated['is_available'];
+        if (isset($validated['title'])) {
+            $game->title = $validated['title'];
+        }
+        if (isset($validated['genre'])) {
+            $game->genre = $validated['genre'];
+        }
+        if (isset($validated['developer'])) {
+            $game->developer = $validated['developer'];
+        }
+        if (isset($validated['release_date'])) {
+            $game->release_date = $validated['release_date'];
+        }
+        if (isset($validated['releaseDate'])) {
+            $game->release_date = $validated['releaseDate'];
+        }
+        if (isset($validated['description'])) {
+            $game->description = $validated['description'];
+        }
+        if (isset($validated['age_rating'])) {
+            $game->age_rating = $validated['age_rating'];
+        }
+        if (isset($validated['is_available'])) {
+            $game->is_available = $validated['is_available'];
+        }
 
         if ($request->has('price') || $basePrice > 0) {
             $game->price = $basePrice;
@@ -912,7 +911,7 @@ class AdminController extends Controller
 
         $game->save();
 
-        if (!empty($validated['variants'])) {
+        if (! empty($validated['variants'])) {
             foreach ($validated['variants'] as $v) {
                 $game->variants()->updateOrCreate(
                     ['platform_id' => $v['platform_id']],
@@ -970,7 +969,7 @@ class AdminController extends Controller
         return response()->json([
             'ok' => true,
             'message' => 'اسکرین‌شات‌ها با موفقیت ذخیره شدند.',
-            'screenshots' => array_map(fn ($p) => url('storage/' . ltrim($p, '/')), $currentScreenshots),
+            'screenshots' => array_map(fn ($p) => url('storage/'.ltrim($p, '/')), $currentScreenshots),
         ]);
     }
 
@@ -1004,9 +1003,9 @@ class AdminController extends Controller
      */
     public function transactions(Request $request): JsonResponse
     {
-        $transactions = \App\Models\WalletTransaction::with('wallet.user')
+        $transactions = WalletTransaction::with('wallet.user')
             ->latest()
-            ->paginate($request->integer('per_page', 20));
+            ->paginate($this->perPage($request, 20));
 
         return response()->json([
             'ok' => true,
@@ -1019,7 +1018,7 @@ class AdminController extends Controller
      */
     public function banners(Request $request): JsonResponse
     {
-        $banners = \Illuminate\Support\Facades\DB::table('banners')
+        $banners = DB::table('banners')
             ->orderBy('sort_order')
             ->latest()
             ->get();
@@ -1046,7 +1045,7 @@ class AdminController extends Controller
             ? $request->file('image')->store('banners', 'public')
             : $validated['image'];
 
-        $id = \Illuminate\Support\Facades\DB::table('banners')->insertGetId([
+        $id = DB::table('banners')->insertGetId([
             'title' => $validated['title'],
             'image' => $imagePath,
             'link' => $validated['link'] ?? null,
@@ -1068,7 +1067,7 @@ class AdminController extends Controller
      */
     public function deleteBanner(int $id): JsonResponse
     {
-        \Illuminate\Support\Facades\DB::table('banners')->where('id', $id)->delete();
+        DB::table('banners')->where('id', $id)->delete();
 
         return response()->json([
             'ok' => true,
@@ -1076,23 +1075,81 @@ class AdminController extends Controller
         ]);
     }
 
+    /**
+     * Shared statistics for the admin dashboard endpoints.
+     *
+     * @return array<string, int>
+     */
+    private function buildDashboardStats(): array
+    {
+        $totalOrders = Order::count();
+        $totalUsers = User::count();
+        $totalGames = Game::count();
+
+        $statusCounts = Order::query()
+            ->toBase()
+            ->selectRaw('status, COUNT(*) as aggregate')
+            ->groupBy('status')
+            ->pluck('aggregate', 'status');
+
+        return [
+            'total_orders' => $totalOrders,
+            'today_orders' => Order::whereDate('created_at', today())->count(),
+            'total_users' => $totalUsers,
+            'total_games' => $totalGames,
+            'games' => $totalGames,
+            'orders' => $totalOrders,
+            'users' => $totalUsers,
+            'pending_orders' => (int) ($statusCounts[OrderStatus::Pending->value] ?? 0),
+            'processing_orders' => (int) ($statusCounts[OrderStatus::Processing->value] ?? 0),
+            'completed_orders' => (int) ($statusCounts[OrderStatus::Completed->value] ?? 0),
+        ];
+    }
+
+    /**
+     * Set a wallet to the given balance through the ledger so every admin
+     * adjustment leaves an auditable wallet transaction.
+     */
+    private function adjustWalletBalance(User $user, float $targetBalance): void
+    {
+        $wallet = $this->walletService->getOrCreateWallet($user);
+        $difference = round($targetBalance - (float) $wallet->balance, 2);
+
+        if ($difference > 0) {
+            $this->walletService->credit($user, $difference, 'admin-adjustment', 'Balance adjusted by admin');
+        } elseif ($difference < 0) {
+            $this->walletService->debit($user, abs($difference), 'admin-adjustment', 'Balance adjusted by admin');
+        }
+    }
+
+    private function perPage(Request $request, int $default = 15): int
+    {
+        return min(max($request->integer('per_page', $default), 1), 100);
+    }
+
     private function resolveStatusKey(string $status): string
     {
         return match ($status) {
-            'در حال بررسی', 'pending' => 'pending',
-            'در حال پردازش', 'تایید شده', 'processing', 'confirmed' => 'processing',
-            'تکمیل شده', 'آماده تحویل', 'completed', 'ready' => 'completed',
-            default => 'pending',
+            'در حال بررسی', 'pending' => OrderStatus::Pending->value,
+            'در حال پردازش', 'تایید شده', 'processing', 'confirmed' => OrderStatus::Processing->value,
+            'تکمیل شده', 'آماده تحویل', 'completed', 'ready' => OrderStatus::Completed->value,
+            default => throw ValidationException::withMessages([
+                'status' => 'وضعیت سفارش نامعتبر است.',
+            ]),
         };
     }
 
     private function resolvePaymentStatusKey(string $status): string
     {
         return match ($status) {
-            'پرداخت شده', 'paid' => 'paid',
-            'در انتظار پرداخت', 'unpaid', 'pending' => 'unpaid',
-            'پرداخت ناقص', 'partial' => 'partial',
-            default => 'unpaid',
+            'پرداخت شده', 'paid' => PaymentStatus::Paid->value,
+            'در انتظار پرداخت', 'unpaid', 'pending' => PaymentStatus::Unpaid->value,
+            'پرداخت ناقص', 'partial' => PaymentStatus::Partial->value,
+            'ناموفق', 'failed' => PaymentStatus::Failed->value,
+            'مسترد شده', 'refunded' => PaymentStatus::Refunded->value,
+            default => throw ValidationException::withMessages([
+                'payment_status' => 'وضعیت پرداخت نامعتبر است.',
+            ]),
         };
     }
 
@@ -1101,8 +1158,10 @@ class AdminController extends Controller
         return match ($status) {
             'نصب شده', 'installed' => 'installed',
             'در حال نصب', 'installing' => 'installing',
-            default => 'pending',
+            'در انتظار نصب', 'pending' => 'pending',
+            default => throw ValidationException::withMessages([
+                'installation_status' => 'وضعیت نصب نامعتبر است.',
+            ]),
         };
     }
 }
-

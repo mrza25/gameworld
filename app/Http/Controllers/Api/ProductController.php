@@ -16,7 +16,7 @@ class ProductController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = Game::query()
-            ->with(['variants.platform'])
+            ->withCatalogStats(auth('sanctum')->user())
             ->where('is_available', true);
 
         if ($request->filled('genre') && $request->genre !== 'all') {
@@ -49,8 +49,8 @@ class ProductController extends Controller
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('title', 'like', "%{$search}%")
-                  ->orWhere('genre', 'like', "%{$search}%")
-                  ->orWhere('developer', 'like', "%{$search}%");
+                    ->orWhere('genre', 'like', "%{$search}%")
+                    ->orWhere('developer', 'like', "%{$search}%");
             });
         }
 
@@ -99,9 +99,10 @@ class ProductController extends Controller
     public function show(string $slug): JsonResponse
     {
         $game = Game::query()
-            ->with(['variants.platform'])
-            ->where('slug', $slug)
-            ->orWhere('id', is_numeric($slug) ? $slug : 0)
+            ->withCatalogStats(auth('sanctum')->user())
+            ->where(fn ($query) => $query
+                ->where('slug', $slug)
+                ->orWhere('id', is_numeric($slug) ? $slug : 0))
             ->firstOrFail();
 
         $data = $this->transformGame($game);
@@ -137,4 +138,3 @@ class ProductController extends Controller
         return $game->toCatalogArray();
     }
 }
-

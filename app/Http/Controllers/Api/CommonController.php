@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Game;
+use App\Models\GameRating;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class CommonController extends Controller
 {
@@ -23,9 +25,9 @@ class CommonController extends Controller
             ->map(fn ($b) => [
                 'id' => $b->id,
                 'title' => $b->title,
-                'image' => \Illuminate\Support\Str::startsWith($b->image, ['http://', 'https://'])
+                'image' => Str::startsWith($b->image, ['http://', 'https://'])
                     ? $b->image
-                    : url('storage/' . ltrim($b->image, '/')),
+                    : url('storage/'.ltrim($b->image, '/')),
                 'link' => $b->link,
                 'sort_order' => $b->sort_order,
             ]);
@@ -44,7 +46,7 @@ class CommonController extends Controller
         $notifications = $request->user()
             ->notifications()
             ->latest()
-            ->paginate($request->integer('per_page', 20));
+            ->paginate(min(max($request->integer('per_page', 20), 1), 100));
 
         return response()->json([
             'ok' => true,
@@ -95,7 +97,7 @@ class CommonController extends Controller
 
         $ratingVal = $request->input('rating') ?? $request->input('rate') ?? $request->input('score');
 
-        if (!$ratingVal || !is_numeric($ratingVal) || $ratingVal < 1 || $ratingVal > 5) {
+        if (! $ratingVal || ! is_numeric($ratingVal) || $ratingVal < 1 || $ratingVal > 5) {
             return response()->json([
                 'ok' => false,
                 'message' => 'امتیاز باید عددی بین ۱ تا ۵ باشد.',
@@ -105,9 +107,13 @@ class CommonController extends Controller
             ], 422);
         }
 
+        $request->validate([
+            'comment' => ['nullable', 'string', 'max:1000'],
+        ]);
+
         $ratingInt = (int) round((float) $ratingVal);
 
-        DB::table('game_ratings')->updateOrInsert(
+        GameRating::updateOrCreate(
             [
                 'game_id' => $game->id,
                 'user_id' => $request->user()->id,
@@ -115,13 +121,11 @@ class CommonController extends Controller
             [
                 'rating' => $ratingInt,
                 'comment' => $request->input('comment'),
-                'updated_at' => now(),
-                'created_at' => now(),
             ]
         );
 
-        $avgRating = DB::table('game_ratings')->where('game_id', $game->id)->avg('rating');
-        $ratingCount = DB::table('game_ratings')->where('game_id', $game->id)->count();
+        $avgRating = $game->ratings()->avg('rating');
+        $ratingCount = $game->ratings()->count();
 
         $rate = round((float) $avgRating, 1);
 
@@ -139,4 +143,3 @@ class CommonController extends Controller
         ]);
     }
 }
-

@@ -19,8 +19,7 @@ class OrderController extends Controller
 {
     public function __construct(
         private CheckoutService $checkoutService
-    ) {
-    }
+    ) {}
 
     /**
      * List current authenticated customer's orders.
@@ -68,22 +67,22 @@ class OrderController extends Controller
      */
     public function checkout(Request $request): JsonResponse
     {
-        if (!$request->has('method') && $request->has('payment_method')) {
+        if (! $request->has('method') && $request->has('payment_method')) {
             $request->merge(['method' => $request->input('payment_method')]);
         }
-        if (!$request->has('method') && $request->has('paymentMethod')) {
+        if (! $request->has('method') && $request->has('paymentMethod')) {
             $request->merge(['method' => $request->input('paymentMethod')]);
         }
-        if (!$request->has('console') && $request->has('platform')) {
+        if (! $request->has('console') && $request->has('platform')) {
             $request->merge(['console' => $request->input('platform')]);
         }
-        if (!$request->has('console') && $request->has('console_type')) {
+        if (! $request->has('console') && $request->has('console_type')) {
             $request->merge(['console' => $request->input('console_type')]);
         }
-        if ($request->has('game_ids') && !$request->has('games')) {
+        if ($request->has('game_ids') && ! $request->has('games')) {
             $request->merge(['games' => $request->input('game_ids')]);
         }
-        if ($request->has('gameIds') && !$request->has('games')) {
+        if ($request->has('gameIds') && ! $request->has('games')) {
             $request->merge(['games' => $request->input('gameIds')]);
         }
 
@@ -107,7 +106,7 @@ class OrderController extends Controller
             ->orWhere('name', $validated['console'])
             ->first();
 
-        if (!$platform) {
+        if (! $platform) {
             return response()->json([
                 'ok' => false,
                 'error' => 'کنسول انتخاب شده معتبر نیست.',
@@ -125,20 +124,30 @@ class OrderController extends Controller
                 } elseif (is_string($item)) {
                     $gameSlugs[] = $item;
                 } elseif (is_array($item)) {
-                    if (!empty($item['variantId'])) $rawVariantIds[] = (int) $item['variantId'];
-                    elseif (!empty($item['variant_id'])) $rawVariantIds[] = (int) $item['variant_id'];
-                    elseif (!empty($item['id'])) $rawVariantIds[] = (int) $item['id'];
-                    
-                    if (!empty($item['gameId'])) $gameSlugs[] = (string) $item['gameId'];
-                    elseif (!empty($item['game_id'])) $gameSlugs[] = (string) $item['game_id'];
-                    elseif (!empty($item['slug'])) $gameSlugs[] = (string) $item['slug'];
-                    elseif (!empty($item['game']['id'])) $gameSlugs[] = (string) $item['game']['id'];
-                    elseif (!empty($item['game']['slug'])) $gameSlugs[] = (string) $item['game']['slug'];
+                    if (! empty($item['variantId'])) {
+                        $rawVariantIds[] = (int) $item['variantId'];
+                    } elseif (! empty($item['variant_id'])) {
+                        $rawVariantIds[] = (int) $item['variant_id'];
+                    } elseif (! empty($item['id'])) {
+                        $rawVariantIds[] = (int) $item['id'];
+                    }
+
+                    if (! empty($item['gameId'])) {
+                        $gameSlugs[] = (string) $item['gameId'];
+                    } elseif (! empty($item['game_id'])) {
+                        $gameSlugs[] = (string) $item['game_id'];
+                    } elseif (! empty($item['slug'])) {
+                        $gameSlugs[] = (string) $item['slug'];
+                    } elseif (! empty($item['game']['id'])) {
+                        $gameSlugs[] = (string) $item['game']['id'];
+                    } elseif (! empty($item['game']['slug'])) {
+                        $gameSlugs[] = (string) $item['game']['slug'];
+                    }
                 }
             }
         }
 
-        if (!empty($gameSlugs)) {
+        if (! empty($gameSlugs)) {
             $games = Game::whereIn('slug', $gameSlugs)
                 ->orWhereIn('id', array_filter($gameSlugs, 'is_numeric'))
                 ->pluck('id');
@@ -153,21 +162,25 @@ class OrderController extends Controller
         }
 
         // Smart Variant Resolution: if variant belongs to another platform, map to this platform
-        $variantIds = [];
-        foreach (array_unique($rawVariantIds) as $vId) {
-            $v = GameVariant::find($vId);
-            if (!$v) continue;
+        $requestedVariants = GameVariant::query()
+            ->whereIn('id', array_unique($rawVariantIds))
+            ->get(['id', 'game_id', 'platform_id']);
 
+        $platformVariantIdsByGame = GameVariant::query()
+            ->whereIn('game_id', $requestedVariants->pluck('game_id')->unique())
+            ->where('platform_id', $platform->id)
+            ->where('is_available', true)
+            ->pluck('id', 'game_id');
+
+        $variantIds = [];
+        foreach ($requestedVariants as $v) {
             if ($v->platform_id === $platform->id || $platform->slug === 'other') {
                 $variantIds[] = $v->id;
             } else {
-                $match = GameVariant::where('game_id', $v->game_id)
-                    ->where('platform_id', $platform->id)
-                    ->where('is_available', true)
-                    ->first();
-                $variantIds[] = $match ? $match->id : $v->id;
+                $variantIds[] = $platformVariantIdsByGame[$v->game_id] ?? $v->id;
             }
         }
+        $variantIds = array_values(array_unique($variantIds));
 
         if (empty($variantIds)) {
             return response()->json([
@@ -190,7 +203,7 @@ class OrderController extends Controller
 
         foreach ($variants as $variant) {
             $isMatchingPlatform = ($variant->platform_id === $platform->id) || ($platform->slug === 'other');
-            if (!$isMatchingPlatform) {
+            if (! $isMatchingPlatform) {
                 return response()->json([
                     'ok' => false,
                     'error' => "نسخه انتخابی با کنسول {$platform->name} مطابقت ندارد.",
@@ -250,9 +263,8 @@ class OrderController extends Controller
                 'transaction_id' => $payment->transaction_id,
             ]);
 
-            $frontendUrl = rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/');
+            $frontendUrl = config('app.frontend_url');
             $frontendSuccessUrl = "{$frontendUrl}/my/orders?payment=success";
-            $frontendFailedUrl = "{$frontendUrl}/my/orders?payment=failed";
 
             return response()->json([
                 'ok' => true,
@@ -291,12 +303,13 @@ class OrderController extends Controller
         ]);
 
         $payment = Payment::findOrFail($request->integer('payment'));
-        $frontendUrl = rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/');
+        $frontendUrl = config('app.frontend_url');
 
         if ($payment->user_id !== $request->user()->id) {
-            if (!$request->wantsJson()) {
+            if (! $request->wantsJson()) {
                 return redirect("{$frontendUrl}/my/orders?payment=failed&error=unauthorized");
             }
+
             return response()->json([
                 'ok' => false,
                 'error' => 'دسترسی غیرمجاز.',
@@ -307,7 +320,7 @@ class OrderController extends Controller
             $order = Order::with(['items.game', 'items.gameVariant.platform'])->find($payment->order_id);
             $redirectUrl = "{$frontendUrl}/my/orders?payment=success&order_id={$payment->order_id}";
 
-            if (!$request->wantsJson()) {
+            if (! $request->wantsJson()) {
                 return redirect($redirectUrl);
             }
 
@@ -328,7 +341,7 @@ class OrderController extends Controller
 
             $redirectUrl = "{$frontendUrl}/my/orders?payment=success&order_id={$order->id}";
 
-            if (!$request->wantsJson()) {
+            if (! $request->wantsJson()) {
                 return redirect($redirectUrl);
             }
 
@@ -340,9 +353,9 @@ class OrderController extends Controller
                 'message' => 'پرداخت تأیید شد و سفارش شما ثبت گردید.',
             ]);
         } catch (RuntimeException $e) {
-            $redirectUrl = "{$frontendUrl}/my/orders?payment=failed&error=" . urlencode($e->getMessage());
+            $redirectUrl = "{$frontendUrl}/my/orders?payment=failed&error=".urlencode($e->getMessage());
 
-            if (!$request->wantsJson()) {
+            if (! $request->wantsJson()) {
                 return redirect($redirectUrl);
             }
 
@@ -359,4 +372,3 @@ class OrderController extends Controller
         return $order->toApiArray();
     }
 }
-
