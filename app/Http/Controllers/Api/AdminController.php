@@ -688,32 +688,36 @@ class AdminController extends Controller
 
         $releaseDate = $validated['release_date'] ?? $validated['releaseDate'] ?? now()->format('Y-m-d');
 
-        $game = Game::create([
-            'title' => $validated['title'],
-            'slug' => $slug,
-            'genre' => $validated['genre'],
-            'price' => $basePrice,
-            'size' => $baseSize,
-            'platform' => $basePlatform,
-            'developer' => $validated['developer'] ?? 'PlayStation Studios',
-            'release_date' => $releaseDate,
-            'description' => $validated['description'] ?? null,
-            'age_rating' => $validated['age_rating'] ?? 16,
-            'modes' => $modes,
-            'languages' => $languages,
-            'image' => $imagePath,
-            'screenshots' => $screenshots,
-            'is_available' => $validated['is_available'] ?? true,
-        ]);
-
-        foreach ($validated['variants'] as $v) {
-            $game->variants()->create([
-                'platform_id' => $v['platform_id'],
-                'price' => $v['price'],
-                'size' => $v['size'],
-                'is_available' => $v['is_available'] ?? true,
+        $game = DB::transaction(function () use ($validated, $slug, $basePrice, $baseSize, $basePlatform, $releaseDate, $modes, $languages, $imagePath, $screenshots) {
+            $game = Game::create([
+                'title' => $validated['title'],
+                'slug' => $slug,
+                'genre' => $validated['genre'],
+                'price' => $basePrice,
+                'size' => $baseSize,
+                'platform' => $basePlatform,
+                'developer' => $validated['developer'] ?? 'PlayStation Studios',
+                'release_date' => $releaseDate,
+                'description' => $validated['description'] ?? null,
+                'age_rating' => $validated['age_rating'] ?? 16,
+                'modes' => $modes,
+                'languages' => $languages,
+                'image' => $imagePath,
+                'screenshots' => $screenshots,
+                'is_available' => $validated['is_available'] ?? true,
             ]);
-        }
+
+            foreach ($validated['variants'] as $v) {
+                $game->variants()->create([
+                    'platform_id' => $v['platform_id'],
+                    'price' => $v['price'],
+                    'size' => $v['size'],
+                    'is_available' => $v['is_available'] ?? true,
+                ]);
+            }
+
+            return $game;
+        });
 
         $catalogData = $game->fresh(['variants.platform'])->toCatalogArray();
 
@@ -910,30 +914,32 @@ class AdminController extends Controller
             $game->languages = is_array($languages) ? array_values(array_filter($languages)) : null;
         }
 
-        $game->save();
+        DB::transaction(function () use ($game, $validated, $request) {
+            $game->save();
 
-        if (! empty($validated['variants'])) {
-            foreach ($validated['variants'] as $v) {
-                $game->variants()->updateOrCreate(
-                    ['platform_id' => $v['platform_id']],
-                    [
-                        'price' => $v['price'],
-                        'size' => $v['size'],
-                        'is_available' => $v['is_available'] ?? true,
-                    ]
-                );
+            if (! empty($validated['variants'])) {
+                foreach ($validated['variants'] as $v) {
+                    $game->variants()->updateOrCreate(
+                        ['platform_id' => $v['platform_id']],
+                        [
+                            'price' => $v['price'],
+                            'size' => $v['size'],
+                            'is_available' => $v['is_available'] ?? true,
+                        ]
+                    );
+                }
+            } elseif ($request->has('price') || $request->has('size')) {
+                // Sync updated price/size to all existing variants if no specific variants passed
+                foreach ($game->variants as $variant) {
+                    $isCopy = str_contains($variant->platform?->slug ?? '', 'copy') || ($variant->platform?->slug === 'other');
+                    $price = $isCopy ? round($game->price * 0.35) : $game->price;
+                    $variant->update([
+                        'price' => $price,
+                        'size' => $game->size > 0 ? $game->size : $variant->size,
+                    ]);
+                }
             }
-        } elseif ($request->has('price') || $request->has('size')) {
-            // Sync updated price/size to all existing variants if no specific variants passed
-            foreach ($game->variants as $variant) {
-                $isCopy = str_contains($variant->platform?->slug ?? '', 'copy') || ($variant->platform?->slug === 'other');
-                $price = $isCopy ? round($game->price * 0.35) : $game->price;
-                $variant->update([
-                    'price' => $price,
-                    'size' => $game->size > 0 ? $game->size : $variant->size,
-                ]);
-            }
-        }
+        });
 
         $catalogData = $game->fresh(['variants.platform'])->toCatalogArray();
 
@@ -990,8 +996,10 @@ class AdminController extends Controller
             ], 422);
         }
 
-        $game->variants()->delete();
-        $game->delete();
+        DB::transaction(function () use ($game) {
+            $game->variants()->delete();
+            $game->delete();
+        });
 
         return response()->json([
             'ok' => true,
