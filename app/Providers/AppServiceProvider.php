@@ -3,8 +3,11 @@
 declare(strict_types=1);
 
 namespace App\Providers;
+
 use App\Contracts\PaymentGateway;
+use App\Contracts\SmsSender;
 use App\Services\PaymentGateways\FakePaymentGateway;
+use App\Services\Sms\LogSmsSender;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
@@ -22,6 +25,11 @@ class AppServiceProvider extends ServiceProvider
             PaymentGateway::class,
             FakePaymentGateway::class
         );
+
+        $this->app->bind(
+            SmsSender::class,
+            LogSmsSender::class
+        );
     }
 
     /**
@@ -34,16 +42,19 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('api', function (Request $request) {
             $limit = app()->runningUnitTests() ? 1000 : 120;
+
             return Limit::perMinute($limit)->by($request->user()?->id ?: $request->ip());
         });
 
         RateLimiter::for('auth', function (Request $request) {
             $limit = app()->runningUnitTests() ? 1000 : 10;
+
             return Limit::perMinute($limit)->by($request->ip());
         });
 
         RateLimiter::for('financial', function (Request $request) {
             $limit = app()->runningUnitTests() ? 1000 : 20;
+
             return Limit::perMinute($limit)->by($request->user()?->id ?: $request->ip());
         });
     }

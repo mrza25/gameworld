@@ -4,12 +4,12 @@ namespace App\Http\Controllers\Api;
 
 use App\Helpers\Jalali;
 use App\Http\Controllers\Controller;
+use App\Jobs\SendOtpSms;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -170,9 +170,7 @@ class AuthController extends Controller
         Cache::put('otp:'.$phone, $code, now()->addMinutes(2));
         Cache::forget('otp-attempts:'.$phone);
 
-        if ($this->exposesDebugOtp()) {
-            Log::info("OTP Code for {$phone}: {$code}");
-        }
+        SendOtpSms::dispatch($phone, $code);
 
         return response()->json([
             'ok' => true,
