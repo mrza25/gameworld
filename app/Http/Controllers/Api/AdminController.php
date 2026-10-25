@@ -14,6 +14,7 @@ use App\PaymentStatus;
 use App\Services\WalletService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -1045,6 +1046,8 @@ class AdminController extends Controller
             ? $request->file('image')->store('banners', 'public')
             : $validated['image'];
 
+        Cache::forget(CommonController::BANNERS_CACHE_KEY);
+
         $id = DB::table('banners')->insertGetId([
             'title' => $validated['title'],
             'image' => $imagePath,
@@ -1068,6 +1071,7 @@ class AdminController extends Controller
     public function deleteBanner(int $id): JsonResponse
     {
         DB::table('banners')->where('id', $id)->delete();
+        Cache::forget(CommonController::BANNERS_CACHE_KEY);
 
         return response()->json([
             'ok' => true,

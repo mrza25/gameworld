@@ -7,29 +7,36 @@ use App\Models\Game;
 use App\Models\GameRating;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class CommonController extends Controller
 {
+    public const BANNERS_CACHE_KEY = 'catalog:active-banners';
+
     /**
      * Get active banners for home page.
      */
     public function banners(): JsonResponse
     {
-        $banners = DB::table('banners')
+        $rows = Cache::remember(self::BANNERS_CACHE_KEY, now()->addHour(), fn () => DB::table('banners')
             ->where('is_active', true)
             ->orderBy('sort_order')
             ->latest()
             ->get()
-            ->map(fn ($b) => [
-                'id' => $b->id,
-                'title' => $b->title,
-                'image' => Str::startsWith($b->image, ['http://', 'https://'])
-                    ? $b->image
-                    : url('storage/'.ltrim($b->image, '/')),
-                'link' => $b->link,
-                'sort_order' => $b->sort_order,
+            ->map(fn (object $row) => (array) $row)
+            ->all());
+
+        $banners = collect($rows)
+            ->map(fn (array $banner) => [
+                'id' => $banner['id'],
+                'title' => $banner['title'],
+                'image' => Str::startsWith($banner['image'], ['http://', 'https://'])
+                    ? $banner['image']
+                    : url('storage/'.ltrim($banner['image'], '/')),
+                'link' => $banner['link'],
+                'sort_order' => $banner['sort_order'],
             ]);
 
         return response()->json([

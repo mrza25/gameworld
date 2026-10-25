@@ -7,6 +7,7 @@ use App\Models\Game;
 use App\Models\Platform;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class ProductController extends Controller
 {
@@ -120,12 +121,15 @@ class ProductController extends Controller
      */
     public function consoles(): JsonResponse
     {
-        $consoles = Platform::orderBy('id')->get()->map(fn (Platform $platform) => [
-            'id' => $platform->id,
-            'label' => $platform->name,
-            'value' => $platform->slug,
-            'short' => $platform->name,
-        ]);
+        $consoles = Cache::remember('catalog:consoles', now()->addHour(), fn () => Platform::orderBy('id')
+            ->get()
+            ->map(fn (Platform $platform) => [
+                'id' => $platform->id,
+                'label' => $platform->name,
+                'value' => $platform->slug,
+                'short' => $platform->name,
+            ])
+            ->all());
 
         return response()->json([
             'ok' => true,
