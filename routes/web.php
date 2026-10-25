@@ -1,16 +1,17 @@
 <?php
 
+use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminOrderController;
-use App\Http\Controllers\ConsoleController;
-use App\Http\Controllers\OrderController;
-use App\Http\Middleware\AdminMiddleware;
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CheckoutController;
+use App\Http\Controllers\ConsoleController;
 use App\Http\Controllers\GameController;
 use App\Http\Controllers\NotificationController;
-use App\Http\Controllers\Admin\AdminDashboardController;
+use App\Http\Controllers\OrderController;
 use App\Http\Controllers\WalletController;
-use App\Http\Controllers\CheckoutController;
+use App\Http\Middleware\AdminMiddleware;
+use Illuminate\Support\Facades\Route;
+
 /*
 |--------------------------------------------------------------------------
 | Public Routes
@@ -31,28 +32,28 @@ Route::middleware('guest')->group(function () {
 
     Route::get('/login', [
         AuthController::class,
-        'showLogin'
+        'showLogin',
     ])->name('login');
 
     Route::post('/login', [
         AuthController::class,
-        'login'
+        'login',
     ])->middleware('throttle:auth')->name('login.store');
 
     Route::get('/register', [
         AuthController::class,
-        'showRegister'
+        'showRegister',
     ])->name('register');
 
     Route::post('/register', [
         AuthController::class,
-        'register'
+        'register',
     ])->middleware('throttle:auth')->name('register.store');
 });
 
 Route::post('/logout', [
     AuthController::class,
-    'logout'
+    'logout',
 ])
     ->middleware('auth')
     ->name('logout');
@@ -69,12 +70,12 @@ Route::post('/logout', [
 
 Route::get('/games', [
     GameController::class,
-    'index'
+    'index',
 ])->name('games.index');
 
 Route::get('/games/{game}', [
     GameController::class,
-    'show'
+    'show',
 ])->name('games.show');
 
 /*
@@ -84,16 +85,16 @@ Route::get('/games/{game}', [
 */
 
 Route::middleware('auth')->group(function () {
-//NOTIFICATIONS
+    // NOTIFICATIONS
     Route::get('/notifications', [
-    NotificationController::class,
-    'index'
-])->name('notifications.index');
+        NotificationController::class,
+        'index',
+    ])->name('notifications.index');
 
-Route::patch('/notifications/{notification}/read', [
-    NotificationController::class,
-    'markAsRead'
-])->name('notifications.read');
+    Route::patch('/notifications/{notification}/read', [
+        NotificationController::class,
+        'markAsRead',
+    ])->name('notifications.read');
     /*
     |--------------------------------------------------------------------------
     | Consoles - Temporary
@@ -106,17 +107,17 @@ Route::patch('/notifications/{notification}/read', [
 
     Route::get('/consoles', [
         ConsoleController::class,
-        'index'
+        'index',
     ])->name('consoles.index');
 
     Route::get('/consoles/create', [
         ConsoleController::class,
-        'create'
+        'create',
     ])->name('consoles.create');
 
     Route::post('/consoles', [
         ConsoleController::class,
-        'store'
+        'store',
     ])->name('consoles.store');
 
     /*
@@ -127,60 +128,59 @@ Route::patch('/notifications/{notification}/read', [
 
     Route::get('/orders', [
         OrderController::class,
-        'index'
+        'index',
     ])->name('orders.index');
 
     Route::get('/orders/create', [
         OrderController::class,
-        'create'
+        'create',
     ])->name('orders.create');
 
     Route::post('/orders', [
         OrderController::class,
-        'store'
+        'store',
     ])->name('orders.store');
 
     Route::get('/orders/{order}', [
         OrderController::class,
-        'show'
+        'show',
     ])->name('orders.show');
-//wallet
+    // wallet
     Route::get('/wallet', [
         WalletController::class,
-        'index'
+        'index',
     ])->name('wallet.index');
 
     Route::post('/wallet/charge', [
         WalletController::class,
-        'charge'
+        'charge',
     ])->middleware('throttle:financial')->name('wallet.charge');
 
     Route::get('/wallet/callback', [
         WalletController::class,
-        'chargeCallback'
+        'chargeCallback',
     ])->name('wallet.callback');
 
     // checkout
     Route::post('/checkout/gateway', [
         CheckoutController::class,
-        'payWithGateway'
+        'payWithGateway',
     ])->middleware('throttle:financial')->name('checkout.gateway');
 
     Route::get('/payment/callback', [
         CheckoutController::class,
-        'gatewayCallback'
+        'gatewayCallback',
     ])->name('payment.callback');
 
     Route::get('/checkout', [
         CheckoutController::class,
-        'index'
+        'index',
     ])->name('checkout.index');
 
     Route::post('/checkout/wallet', [
         CheckoutController::class,
-        'payWithWallet'
+        'payWithWallet',
     ])->middleware('throttle:financial')->name('checkout.wallet');
-
 
 });
 
@@ -200,35 +200,35 @@ Route::middleware([
 
         /* Game Management */
 
-Route::get('/games', [
-    GameController::class,
-    'adminIndex'
-])->name('games.index');
+        Route::get('/games', [
+            GameController::class,
+            'adminIndex',
+        ])->name('games.index');
 
-Route::get('/games/create', [
-    GameController::class,
-    'create'
-])->name('games.create');
+        Route::get('/games/create', [
+            GameController::class,
+            'create',
+        ])->name('games.create');
 
-Route::post('/games', [
-    GameController::class,
-    'store'
-])->name('games.store');
+        Route::post('/games', [
+            GameController::class,
+            'store',
+        ])->name('games.store');
 
-Route::get('/games/{game}/edit', [
-    GameController::class,
-    'edit'
-])->name('games.edit');
+        Route::get('/games/{game}/edit', [
+            GameController::class,
+            'edit',
+        ])->name('games.edit');
 
-Route::patch('/games/{game}', [
-    GameController::class,
-    'update'
-])->name('games.update');
+        Route::patch('/games/{game}', [
+            GameController::class,
+            'update',
+        ])->name('games.update');
 
-Route::delete('/games/{game}', [
-    GameController::class,
-    'destroy'
-])->name('games.destroy');
+        Route::delete('/games/{game}', [
+            GameController::class,
+            'destroy',
+        ])->name('games.destroy');
         /*
         |--------------------------------------------------------------------------
         | Order Management
@@ -237,31 +237,31 @@ Route::delete('/games/{game}', [
 
         Route::get('/orders', [
             AdminOrderController::class,
-            'index'
+            'index',
         ])->name('orders.index');
 
         Route::get('/orders/{order}', [
             AdminOrderController::class,
-            'show'
+            'show',
         ])->name('orders.show');
 
         Route::patch('/orders/{order}/status', [
             AdminOrderController::class,
-            'updateStatus'
+            'updateStatus',
         ])->name('orders.status.update');
 
         Route::patch('/orders/{order}/payment-status', [
             AdminOrderController::class,
-            'updatePaymentStatus'
+            'updatePaymentStatus',
         ])->name('orders.payment-status.update');
 
         Route::patch('/orders/{order}/items/installation-status', [
             AdminOrderController::class,
-            'updateItemInstallationStatus'
+            'updateItemInstallationStatus',
         ])->name('orders.items.installation-status.update');
 
         Route::get('/', [
-    AdminDashboardController::class,
-    'index'
-])->name('dashboard');
+            AdminDashboardController::class,
+            'index',
+        ])->name('dashboard');
     });

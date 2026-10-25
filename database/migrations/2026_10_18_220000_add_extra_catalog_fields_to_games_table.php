@@ -9,16 +9,16 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('games', function (Blueprint $table) {
-            if (!Schema::hasColumn('games', 'modes')) {
+            if (! Schema::hasColumn('games', 'modes')) {
                 $table->json('modes')->nullable()->after('age_rating');
             }
-            if (!Schema::hasColumn('games', 'languages')) {
+            if (! Schema::hasColumn('games', 'languages')) {
                 $table->json('languages')->nullable()->after('modes');
             }
-            if (!Schema::hasColumn('games', 'screenshots')) {
+            if (! Schema::hasColumn('games', 'screenshots')) {
                 $table->json('screenshots')->nullable()->after('languages');
             }
-            if (!Schema::hasColumn('games', 'sales')) {
+            if (! Schema::hasColumn('games', 'sales')) {
                 $table->unsignedInteger('sales')->default(0)->after('screenshots');
             }
         });
@@ -31,4 +31,3 @@ return new class extends Migration
         });
     }
 };
-

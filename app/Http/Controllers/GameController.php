@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Game;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class GameController extends Controller
 {
@@ -15,11 +16,11 @@ class GameController extends Controller
     }
 
     public function adminIndex()
-{
-    $games = Game::latest()->get();
+    {
+        $games = Game::latest()->get();
 
-    return view('admin.games.index', compact('games'));
-}
+        return view('admin.games.index', compact('games'));
+    }
 
     public function create()
     {
@@ -41,11 +42,11 @@ class GameController extends Controller
             'image' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $baseSlug = \Illuminate\Support\Str::slug($validated['title']);
-        $slug = $baseSlug ?: 'game-' . time();
+        $baseSlug = Str::slug($validated['title']);
+        $slug = $baseSlug ?: 'game-'.time();
         $counter = 1;
         while (Game::where('slug', $slug)->exists()) {
-            $slug = $baseSlug . '-' . $counter++;
+            $slug = $baseSlug.'-'.$counter++;
         }
 
         Game::create([

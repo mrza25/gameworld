@@ -79,4 +79,3 @@ class CustomerAccessAndAuthorizationTest extends TestCase
         $response->assertForbidden();
     }
 }
-

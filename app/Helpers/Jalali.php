@@ -11,7 +11,7 @@ class Jalali
      */
     public static function fromDateTime(?DateTimeInterface $date, string $format = 'Y/m/d'): ?string
     {
-        if (!$date) {
+        if (! $date) {
             return null;
         }
 
@@ -64,4 +64,3 @@ class Jalali
         return [$jy, $jm, $jd];
     }
 }
-

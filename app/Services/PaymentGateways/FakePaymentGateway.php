@@ -10,7 +10,7 @@ class FakePaymentGateway implements PaymentGateway
 {
     public function purchase(Payment $payment): string
     {
-        $transactionId = 'FAKE-' . Str::upper(
+        $transactionId = 'FAKE-'.Str::upper(
             Str::random(16)
         );
 

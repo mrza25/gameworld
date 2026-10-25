@@ -4,10 +4,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Notification;
 use App\Notifications\OrderStatusUpdated;
-
+use Illuminate\Http\Request;
 
 class AdminOrderController extends Controller
 {
@@ -38,35 +36,36 @@ class AdminOrderController extends Controller
     }
 
     public function updateStatus(
-    Request $request,
-    Order $order
-) {
-    $validated = $request->validate([
-        'status' => [
-            'required',
-            'in:pending,processing,completed',
-        ],
-    ]);
+        Request $request,
+        Order $order
+    ) {
+        $validated = $request->validate([
+            'status' => [
+                'required',
+                'in:pending,processing,completed',
+            ],
+        ]);
 
-    $oldStatus = $order->status->value;
+        $oldStatus = $order->status->value;
 
-    $order->update([
-        'status' => $validated['status'],
-    ]);
+        $order->update([
+            'status' => $validated['status'],
+        ]);
 
-    $order->refresh();
+        $order->refresh();
 
-    if ($oldStatus !== $order->status->value) {
-        $order->user->notify(
-            new OrderStatusUpdated($order)
+        if ($oldStatus !== $order->status->value) {
+            $order->user->notify(
+                new OrderStatusUpdated($order)
+            );
+        }
+
+        return back()->with(
+            'success',
+            'Order status updated successfully.'
         );
     }
 
-    return back()->with(
-        'success',
-        'Order status updated successfully.'
-    );
-}
     public function updatePaymentStatus(
         Request $request,
         Order $order
@@ -88,43 +87,42 @@ class AdminOrderController extends Controller
         );
     }
 
-
     public function updateItemInstallationStatus(
-    Request $request,
-    Order $order
-) {
-    $validated = $request->validate([
-        'installation_status' => [
-            'required',
-            'in:pending,installing,installed',
-        ],
-    ]);
+        Request $request,
+        Order $order
+    ) {
+        $validated = $request->validate([
+            'installation_status' => [
+                'required',
+                'in:pending,installing,installed',
+            ],
+        ]);
 
-    $item = $order->items()
-        ->findOrFail($request->item_id);
+        $item = $order->items()
+            ->findOrFail($request->item_id);
 
-    $oldOrderStatus = $order->status->value;
+        $oldOrderStatus = $order->status->value;
 
-    $item->update([
-        'installation_status' => $validated['installation_status'],
-        'installed_at' => $validated['installation_status'] === 'installed'
-            ? now()
-            : null,
-    ]);
+        $item->update([
+            'installation_status' => $validated['installation_status'],
+            'installed_at' => $validated['installation_status'] === 'installed'
+                ? now()
+                : null,
+        ]);
 
-    $order->syncStatusFromItems();
+        $order->syncStatusFromItems();
 
-    $order->refresh();
+        $order->refresh();
 
-    if ($oldOrderStatus !== $order->status->value) {
-        $order->user->notify(
-            new OrderStatusUpdated($order)
+        if ($oldOrderStatus !== $order->status->value) {
+            $order->user->notify(
+                new OrderStatusUpdated($order)
+            );
+        }
+
+        return back()->with(
+            'success',
+            'Game installation status updated successfully.'
         );
     }
-
-    return back()->with(
-        'success',
-        'Game installation status updated successfully.'
-    );
-}
 }

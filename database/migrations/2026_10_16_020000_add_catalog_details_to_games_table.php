@@ -24,12 +24,12 @@ return new class extends Migration
         $games = DB::table('games')->get();
         foreach ($games as $game) {
             $baseSlug = Str::slug($game->title);
-            $slug = $baseSlug ?: 'game-' . $game->id;
-            
+            $slug = $baseSlug ?: 'game-'.$game->id;
+
             // Ensure uniqueness
             $counter = 1;
             while (DB::table('games')->where('slug', $slug)->where('id', '!=', $game->id)->exists()) {
-                $slug = $baseSlug . '-' . $counter++;
+                $slug = $baseSlug.'-'.$counter++;
             }
 
             DB::table('games')->where('id', $game->id)->update([
@@ -58,4 +58,3 @@ return new class extends Migration
         });
     }
 };
-

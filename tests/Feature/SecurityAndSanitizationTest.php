@@ -122,4 +122,3 @@ class SecurityAndSanitizationTest extends TestCase
         $resBelow->assertStatus(422);
     }
 }
-

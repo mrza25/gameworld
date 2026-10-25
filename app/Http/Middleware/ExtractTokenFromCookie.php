@@ -62,7 +62,7 @@ class ExtractTokenFromCookie
             }
 
             if (! empty($token)) {
-                $request->headers->set('Authorization', 'Bearer ' . $token);
+                $request->headers->set('Authorization', 'Bearer '.$token);
             }
         }
 

@@ -29,40 +29,40 @@ class ConsoleController extends Controller
     }
 
     public function store(Request $request)
-{
-    $validated = $request->validate([
-        'type' => 'required|string|max:255',
+    {
+        $validated = $request->validate([
+            'type' => 'required|string|max:255',
 
-        'games' => 'nullable|array',
+            'games' => 'nullable|array',
 
-        'games.*' => 'integer|exists:games,id',
-    ]);
-
-    DB::transaction(function () use ($validated) {
-
-        $console = Console::create([
-            'user_id' => Auth::id(),
-            'type' => $validated['type'],
-            'status' => 'pending',
+            'games.*' => 'integer|exists:games,id',
         ]);
 
-        if (!empty($validated['games'])) {
+        DB::transaction(function () use ($validated) {
 
-            $pivotData = [];
+            $console = Console::create([
+                'user_id' => Auth::id(),
+                'type' => $validated['type'],
+                'status' => 'pending',
+            ]);
 
-            foreach ($validated['games'] as $gameId) {
+            if (! empty($validated['games'])) {
 
-                $pivotData[$gameId] = [
-                    'status' => 'pending',
-                ];
+                $pivotData = [];
+
+                foreach ($validated['games'] as $gameId) {
+
+                    $pivotData[$gameId] = [
+                        'status' => 'pending',
+                    ];
+                }
+
+                $console->games()->attach($pivotData);
             }
+        });
 
-            $console->games()->attach($pivotData);
-        }
-    });
-
-    return redirect()
-        ->route('consoles.index')
-        ->with('success', 'Console created successfully.');
-}
+        return redirect()
+            ->route('consoles.index')
+            ->with('success', 'Console created successfully.');
+    }
 }

@@ -5,11 +5,13 @@ namespace Tests\Feature;
 use App\Models\Game;
 use App\Models\GameVariant;
 use App\Models\Order;
+use App\Models\Payment;
 use App\Models\Platform;
 use App\Models\User;
 use App\OrderStatus;
 use App\PaymentStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class OrderCreationAndPaymentTest extends TestCase
@@ -19,13 +21,13 @@ class OrderCreationAndPaymentTest extends TestCase
     private function createGameWithVariant(string $platformName, float $price = 60000): GameVariant
     {
         $platform = Platform::firstOrCreate(
-            ['slug' => \Illuminate\Support\Str::slug($platformName)],
+            ['slug' => Str::slug($platformName)],
             ['name' => $platformName]
         );
 
         $game = Game::create([
-            'title' => 'Test Game ' . uniqid(),
-            'slug' => 'test-game-' . uniqid(),
+            'title' => 'Test Game '.uniqid(),
+            'slug' => 'test-game-'.uniqid(),
             'genre' => 'Action',
             'platform' => $platformName,
             'size' => 50,
@@ -154,7 +156,7 @@ class OrderCreationAndPaymentTest extends TestCase
             ])
             ->post(route('checkout.gateway'));
 
-        $payment = \App\Models\Payment::where('user_id', $user->id)->first();
+        $payment = Payment::where('user_id', $user->id)->first();
         $transactionId = $payment->metadata['gateway_transaction_id'];
 
         // Gateway callback
@@ -178,4 +180,3 @@ class OrderCreationAndPaymentTest extends TestCase
         $replayResponse->assertRedirect(route('orders.show', $order));
     }
 }
-

@@ -11,14 +11,14 @@ class OrderItem extends Model
     use HasFactory;
 
     protected $fillable = [
-    'order_id',
-    'game_id',
-    'game_variant_id',
-    'quantity',
-    'price',
-    'installation_status',
-    'installed_at',
-];
+        'order_id',
+        'game_id',
+        'game_variant_id',
+        'quantity',
+        'price',
+        'installation_status',
+        'installed_at',
+    ];
 
     protected $casts = [
         'price' => 'decimal:2',

@@ -43,12 +43,10 @@ class AuthController extends Controller
             ->onlyInput('phonenumber');
     }
 
-
     public function showRegister()
     {
         return view('auth.register');
     }
-
 
     public function register(Request $request)
     {
@@ -71,16 +69,14 @@ class AuthController extends Controller
             'password' => 'required|string|min:8|confirmed',
         ]);
 
-
         $user = User::create([
             'name' => $validated['name'],
             'phonenumber' => $validated['phonenumber'],
             'password' => Hash::make($validated['password']),
         ]);
         $user->wallet()->create([
-    'balance' => 0,
-]);
-
+            'balance' => 0,
+        ]);
 
         Auth::login($user);
 
@@ -90,7 +86,6 @@ class AuthController extends Controller
             ->route('home')
             ->with('success', 'Your account has been created.');
     }
-
 
     public function logout(Request $request)
     {
@@ -116,7 +111,7 @@ class AuthController extends Controller
         $digits = preg_replace('/\D/', '', $phone);
 
         if (str_starts_with($digits, '989')) {
-            $digits = '0' . substr($digits, 2);
+            $digits = '0'.substr($digits, 2);
         }
 
         return $digits;

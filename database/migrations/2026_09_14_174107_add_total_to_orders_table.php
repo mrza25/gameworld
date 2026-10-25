@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if (!Schema::hasColumn('orders', 'total')) {
+        if (! Schema::hasColumn('orders', 'total')) {
             Schema::table('orders', function (Blueprint $table) {
                 $table->decimal('total', 10, 2)
                     ->default(0)
@@ -20,10 +20,10 @@ return new class extends Migration
         }
     }
 
-public function down(): void
-{
-    Schema::table('orders', function (Blueprint $table) {
-        $table->dropColumn('total');
-    });
-}
+    public function down(): void
+    {
+        Schema::table('orders', function (Blueprint $table) {
+            $table->dropColumn('total');
+        });
+    }
 };

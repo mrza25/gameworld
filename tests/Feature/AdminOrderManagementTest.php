@@ -20,9 +20,13 @@ class AdminOrderManagementTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $customer;
+
     private Platform $platform;
+
     private Game $game;
+
     private GameVariant $variant;
 
     protected function setUp(): void

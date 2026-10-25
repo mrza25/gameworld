@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if (!Schema::hasColumn('orders', 'payment_status')) {
+        if (! Schema::hasColumn('orders', 'payment_status')) {
             Schema::table('orders', function (Blueprint $table) {
                 $table->string('payment_status')
                     ->default('unpaid')
@@ -20,10 +20,10 @@ return new class extends Migration
         }
     }
 
-public function down(): void
-{
-    Schema::table('orders', function (Blueprint $table) {
-        $table->dropColumn('payment_status');
-    });
-}
+    public function down(): void
+    {
+        Schema::table('orders', function (Blueprint $table) {
+            $table->dropColumn('payment_status');
+        });
+    }
 };

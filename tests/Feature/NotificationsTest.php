@@ -92,4 +92,3 @@ class NotificationsTest extends TestCase
         $response->assertNotFound();
     }
 }
-

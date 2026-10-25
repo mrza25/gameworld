@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\GameVariant;
-use App\Models\Order;
 use App\Models\Payment;
 use App\PaymentStatus;
 use App\Services\CheckoutService;
@@ -18,7 +17,7 @@ class CheckoutController extends Controller
     {
         $checkout = $request->session()->get('checkout');
 
-        if (!$checkout) {
+        if (! $checkout) {
             return redirect()
                 ->route('orders.create')
                 ->with('error', 'Please select your console and games first.');
@@ -49,7 +48,7 @@ class CheckoutController extends Controller
     ) {
         $checkout = $request->session()->get('checkout');
 
-        if (!$checkout) {
+        if (! $checkout) {
             return redirect()
                 ->route('orders.create')
                 ->with('error', 'Your checkout session has expired.');
@@ -89,7 +88,7 @@ class CheckoutController extends Controller
     ) {
         $checkout = $request->session()->get('checkout');
 
-        if (!$checkout) {
+        if (! $checkout) {
             return redirect()
                 ->route('orders.create')
                 ->with('error', 'Your checkout session has expired.');
@@ -187,7 +186,7 @@ class CheckoutController extends Controller
         $ids = $checkout['variants'] ?? [];
         $consoleType = $checkout['console_type'] ?? null;
 
-        if (!is_array($ids) || count($ids) === 0 || !$consoleType) {
+        if (! is_array($ids) || count($ids) === 0 || ! $consoleType) {
             throw new RuntimeException(
                 'Your checkout selection is invalid. Please select your games again.'
             );
@@ -227,11 +226,9 @@ class CheckoutController extends Controller
     private function calculateTotal(Collection $variants): float
     {
         $totalCents = $variants->sum(
-            fn (GameVariant $variant) =>
-                (int) round((float) $variant->price * 100)
+            fn (GameVariant $variant) => (int) round((float) $variant->price * 100)
         );
 
         return $totalCents / 100;
     }
 }
-

@@ -10,21 +10,21 @@ return new class extends Migration
     public function up(): void
     {
         // 1. Add console_note to orders if not exists
-        if (!Schema::hasColumn('orders', 'console_note')) {
+        if (! Schema::hasColumn('orders', 'console_note')) {
             Schema::table('orders', function (Blueprint $table) {
                 $table->string('console_note')->nullable()->after('console_type');
             });
         }
 
         // 2. Add avatar to users if not exists
-        if (!Schema::hasColumn('users', 'avatar')) {
+        if (! Schema::hasColumn('users', 'avatar')) {
             Schema::table('users', function (Blueprint $table) {
                 $table->string('avatar')->nullable()->after('name');
             });
         }
 
         // 3. Ensure platforms table has the 11 platforms (in non-testing environments)
-        if (!app()->runningUnitTests()) {
+        if (! app()->runningUnitTests()) {
             $platforms = [
                 ['name' => 'PlayStation 5', 'slug' => 'ps5'],
                 ['name' => 'PlayStation 5 (کپی‌خور)', 'slug' => 'ps5-copy'],
@@ -53,7 +53,7 @@ return new class extends Migration
         }
 
         // 4. Create banners table
-        if (!Schema::hasTable('banners')) {
+        if (! Schema::hasTable('banners')) {
             Schema::create('banners', function (Blueprint $table) {
                 $table->id();
                 $table->string('title');
@@ -66,7 +66,7 @@ return new class extends Migration
         }
 
         // 5. Create game_ratings table
-        if (!Schema::hasTable('game_ratings')) {
+        if (! Schema::hasTable('game_ratings')) {
             Schema::create('game_ratings', function (Blueprint $table) {
                 $table->id();
                 $table->foreignId('game_id')->constrained()->cascadeOnDelete();

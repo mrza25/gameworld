@@ -8,7 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        if (!Schema::hasColumn('orders', 'console_type')) {
+        if (! Schema::hasColumn('orders', 'console_type')) {
             Schema::table('orders', function (Blueprint $table) {
                 $table->string('console_type')->after('user_id');
             });

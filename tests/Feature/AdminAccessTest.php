@@ -50,4 +50,3 @@ class AdminAccessTest extends TestCase
         $response->assertOk();
     }
 }
-

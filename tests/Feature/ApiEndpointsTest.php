@@ -2,11 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Helpers\Jalali;
 use App\Models\Game;
 use App\Models\GameVariant;
+use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\Platform;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 class ApiEndpointsTest extends TestCase
@@ -336,7 +340,7 @@ class ApiEndpointsTest extends TestCase
 
         // 2. Create customer and order
         $customer = User::factory()->create();
-        $order = \App\Models\Order::create([
+        $order = Order::create([
             'user_id' => $customer->id,
             'console_type' => 'PS5',
             'total' => 120000,
@@ -344,7 +348,7 @@ class ApiEndpointsTest extends TestCase
             'payment_status' => 'paid',
         ]);
 
-        $item = \App\Models\OrderItem::create([
+        $item = OrderItem::create([
             'order_id' => $order->id,
             'game_id' => $game->id,
             'game_variant_id' => $variant->id,
@@ -588,7 +592,7 @@ class ApiEndpointsTest extends TestCase
             'code' => $code,
         ]);
         $regRes->assertCreated()->assertJson(['ok' => true]);
-        $this->assertEquals(\App\Helpers\Jalali::fromDateTime(now()), $regRes->json('user.joined_at'));
+        $this->assertEquals(Jalali::fromDateTime(now()), $regRes->json('user.joined_at'));
     }
 
     public function test_api_unified_order_format_and_jalali_date(): void
@@ -598,7 +602,7 @@ class ApiEndpointsTest extends TestCase
         $adminToken = $admin->createToken('admin')->plainTextToken;
 
         $customer = User::factory()->create();
-        $order = \App\Models\Order::create([
+        $order = Order::create([
             'user_id' => $customer->id,
             'console_type' => 'PS5',
             'console_note' => 'PS5 Digital',
@@ -619,7 +623,7 @@ class ApiEndpointsTest extends TestCase
                     'consoleNote' => 'PS5 Digital',
                     'status' => 'در حال بررسی',
                     'statusRaw' => 'pending',
-                    'date' => \App\Helpers\Jalali::fromDateTime(now()),
+                    'date' => Jalali::fromDateTime(now()),
                 ],
             ]);
     }
@@ -740,7 +744,7 @@ class ApiEndpointsTest extends TestCase
         $this->assertEquals(5, $viewAgain->json('data.userRating'));
 
         // 6. OTP login with Persian digits
-        \Illuminate\Support\Facades\Cache::put('otp:09121112233', '54321', now()->addMinutes(2));
+        Cache::put('otp:09121112233', '54321', now()->addMinutes(2));
         $otpRes = $this->postJson(route('api.auth.login-with-otp'), [
             'phone' => '۰۹۱۲۱۱۱۲۲۳۳',
             'code' => '۵۴۳۲۱',
@@ -920,6 +924,3 @@ class ApiEndpointsTest extends TestCase
             ]);
     }
 }
-
-
-

@@ -7,10 +7,11 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
@@ -34,9 +35,9 @@ class User extends Authenticatable
     public function getAvatarUrlAttribute(): string
     {
         if ($this->avatar) {
-            return \Illuminate\Support\Str::startsWith($this->avatar, ['http://', 'https://'])
+            return Str::startsWith($this->avatar, ['http://', 'https://'])
                 ? $this->avatar
-                : url('storage/' . ltrim($this->avatar, '/'));
+                : url('storage/'.ltrim($this->avatar, '/'));
         }
 
         return url('/images/default-avatar.png');
@@ -76,20 +77,23 @@ class User extends Authenticatable
     }
 
     public function consoles(): HasMany
-{
-    return $this->hasMany(Console::class);
+    {
+        return $this->hasMany(Console::class);
 
-}
-public function orders(): HasMany
-{
-    return $this->hasMany(Order::class);
-}
-public function wallet(): HasOne
-{
-    return $this->hasOne(Wallet::class);
-}
-public function payments(): HasMany
-{
-    return $this->hasMany(Payment::class);
-}
+    }
+
+    public function orders(): HasMany
+    {
+        return $this->hasMany(Order::class);
+    }
+
+    public function wallet(): HasOne
+    {
+        return $this->hasOne(Wallet::class);
+    }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class);
+    }
 }

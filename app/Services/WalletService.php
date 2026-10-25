@@ -77,7 +77,7 @@ class WalletService
                 ->lockForUpdate()
                 ->first();
 
-            if (!$wallet) {
+            if (! $wallet) {
                 throw new RuntimeException(
                     'Wallet not found.'
                 );

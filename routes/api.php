@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\WalletController;
 use App\Http\Middleware\AdminMiddleware;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -22,9 +23,9 @@ Route::get('/ping', fn () => response()->json([
 
 Route::get('/health', function () {
     try {
-        \Illuminate\Support\Facades\DB::connection()->getPdo();
+        DB::connection()->getPdo();
         $dbStatus = 'connected';
-    } catch (\Throwable $e) {
+    } catch (Throwable $e) {
         $dbStatus = 'disconnected';
     }
 

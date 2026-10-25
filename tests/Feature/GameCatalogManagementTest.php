@@ -18,7 +18,9 @@ class GameCatalogManagementTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $customer;
+
     private Platform $platform;
 
     protected function setUp(): void
@@ -193,4 +195,3 @@ class GameCatalogManagementTest extends TestCase
         ]);
     }
 }
-

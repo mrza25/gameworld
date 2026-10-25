@@ -4,6 +4,7 @@ namespace Database\Factories;
 
 use App\Models\Game;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Str;
 
 /**
  * @extends Factory<Game>
@@ -21,7 +22,7 @@ class GameFactory extends Factory
 
         return [
             'title' => $title,
-            'slug' => \Illuminate\Support\Str::slug($title) . '-' . fake()->unique()->randomNumber(4),
+            'slug' => Str::slug($title).'-'.fake()->unique()->randomNumber(4),
             'genre' => fake()->randomElement([
                 'Action',
                 'RPG',

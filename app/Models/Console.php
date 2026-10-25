@@ -3,9 +3,6 @@
 namespace App\Models;
 
 use App\ConsoleStatus;
-use App\Models\ConsoleGame;
-use App\Models\Game;
-use App\Models\User;
 use Database\Factories\ConsoleFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -40,4 +37,3 @@ class Console extends Model
         'status',
     ];
 }
-

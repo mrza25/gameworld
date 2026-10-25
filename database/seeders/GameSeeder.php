@@ -147,4 +147,3 @@ class GameSeeder extends Seeder
         }
     }
 }
-
