@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Game;
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\Platform;
 use App\Models\User;
 use App\Models\WalletTransaction;
@@ -17,7 +18,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class AdminController extends Controller
@@ -513,51 +516,20 @@ class AdminController extends Controller
      */
     public function storeGame(Request $request): JsonResponse
     {
-        if (! $request->filled('title') && $request->filled('name')) {
-            $request->merge(['title' => $request->input('name')]);
-        }
-        if (! $request->filled('developer') && $request->filled('brand')) {
-            $request->merge(['developer' => $request->input('brand')]);
-        }
-        if (! $request->filled('age_rating') && $request->filled('age')) {
-            $request->merge(['age_rating' => (int) $request->input('age')]);
-        }
-        if (! $request->filled('release_date') && $request->filled('releaseDate')) {
-            $request->merge(['release_date' => $request->input('releaseDate')]);
-        }
-        if (! $request->has('is_available') && $request->has('available')) {
-            $request->merge(['is_available' => $request->boolean('available')]);
-        }
+        $this->mergeGameFieldAliases($request);
 
-        // Parse modes (array or string)
-        $rawModes = $request->input('modes');
-        if (is_string($rawModes)) {
-            $rawModes = json_validate($rawModes) ? json_decode($rawModes, true) : array_map('trim', explode(',', $rawModes));
-        }
-        $modes = (! empty($rawModes) && is_array($rawModes)) ? array_values(array_filter($rawModes)) : ['تک‌نفره', 'آنلاین'];
+        $modes = $this->decodeListInput($request->input('modes')) ?: ['تک‌نفره', 'آنلاین'];
+        $languages = $this->decodeListInput($request->input('languages')) ?: ['انگلیسی', 'زیرنویس فارسی'];
 
-        // Parse languages (array or string)
-        $rawLanguages = $request->input('languages');
-        if (is_string($rawLanguages)) {
-            $rawLanguages = json_validate($rawLanguages) ? json_decode($rawLanguages, true) : array_map('trim', explode(',', $rawLanguages));
-        }
-        $languages = (! empty($rawLanguages) && is_array($rawLanguages)) ? array_values(array_filter($rawLanguages)) : ['انگلیسی', 'زیرنویس فارسی'];
+        $rawVariants = $this->rawVariantsInput($request) ?? [];
+        $firstVariant = is_array($rawVariants[0] ?? null) ? $rawVariants[0] : [];
 
-        $rawVariants = $request->input('variants') ?? $request->input('platforms') ?? null;
-        if (empty($rawVariants) && $request->filled('platform')) {
-            $rawVariants = [$request->input('platform')];
-        }
-        if (empty($rawVariants) && $request->filled('console')) {
-            $rawVariants = [$request->input('console')];
-        }
-
-        // Price, size, and platform resolution
         $basePrice = (float) (
             $request->input('price')
             ?? $request->input('base_price')
             ?? $request->input('basePrice')
             ?? $request->input('amount')
-            ?? (is_array($rawVariants) && isset($rawVariants[0]['price']) ? $rawVariants[0]['price'] : null)
+            ?? $firstVariant['price']
             ?? 1000000
         );
 
@@ -565,79 +537,15 @@ class AdminController extends Controller
             $request->input('size')
             ?? $request->input('file_size')
             ?? $request->input('fileSize')
-            ?? (is_array($rawVariants) && isset($rawVariants[0]['size']) ? $rawVariants[0]['size'] : null)
+            ?? $firstVariant['size']
             ?? 50.0
         );
 
-        $basePlatform = (string) (
-            $request->input('platform')
-            ?? $request->input('console')
-            ?? (is_array($rawVariants) && isset($rawVariants[0]['console']) ? $rawVariants[0]['console'] : null)
-            ?? (is_array($rawVariants) && isset($rawVariants[0]['platform']) ? $rawVariants[0]['platform'] : null)
-            ?? 'PlayStation 5'
-        );
-
-        $normalizedVariants = [];
-        if (! empty($rawVariants) && is_array($rawVariants)) {
-            foreach ($rawVariants as $v) {
-                if (is_string($v) || is_numeric($v)) {
-                    $platform = Platform::where('slug', $v)
-                        ->orWhere('name', $v)
-                        ->orWhere('id', (int) $v)
-                        ->first();
-                    if ($platform) {
-                        $isCopy = str_contains($platform->slug, 'copy') || $platform->slug === 'other';
-                        $normalizedVariants[] = [
-                            'platform_id' => $platform->id,
-                            'price' => $isCopy ? round($basePrice * 0.35) : $basePrice,
-                            'size' => $baseSize,
-                            'is_available' => true,
-                        ];
-                    }
-                } elseif (is_array($v)) {
-                    $platformId = $v['platform_id'] ?? null;
-                    if (! $platformId && ! empty($v['console'])) {
-                        $platform = Platform::where('slug', $v['console'])
-                            ->orWhere('name', $v['console'])
-                            ->first();
-                        $platformId = $platform?->id;
-                    }
-                    if (! $platformId && ! empty($v['platform'])) {
-                        $platform = Platform::where('slug', $v['platform'])
-                            ->orWhere('name', $v['platform'])
-                            ->first();
-                        $platformId = $platform?->id;
-                    }
-                    if (! $platformId && ! empty($v['slug'])) {
-                        $platform = Platform::where('slug', $v['slug'])->first();
-                        $platformId = $platform?->id;
-                    }
-                    if ($platformId) {
-                        $normalizedVariants[] = [
-                            'platform_id' => $platformId,
-                            'price' => $v['price'] ?? $basePrice,
-                            'size' => $v['size'] ?? $baseSize,
-                            'is_available' => $v['is_available'] ?? $v['available'] ?? true,
-                        ];
-                    }
-                }
-            }
-        }
-
-        // If still empty, auto-populate for all 11 platforms
-        if (empty($normalizedVariants)) {
-            foreach (Platform::all() as $p) {
-                $isCopy = str_contains($p->slug, 'copy') || $p->slug === 'other';
-                $normalizedVariants[] = [
-                    'platform_id' => $p->id,
-                    'price' => $isCopy ? round($basePrice * 0.35) : $basePrice,
-                    'size' => $baseSize,
-                    'is_available' => true,
-                ];
-            }
-        }
-
-        $request->merge(['variants' => $normalizedVariants]);
+        $request->merge([
+            'variants' => empty($rawVariants)
+                ? $this->defaultVariantsForAllPlatforms($basePrice, $baseSize)
+                : $this->normalizeVariants($rawVariants, $basePrice, $baseSize),
+        ]);
 
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:255'],
@@ -648,37 +556,27 @@ class AdminController extends Controller
             'releaseDate' => ['nullable', 'date'],
             'description' => ['nullable', 'string'],
             'age_rating' => ['nullable', 'integer', 'min:3', 'max:21'],
-            'image' => ['nullable'],
-            'cover' => ['nullable'],
-            'poster' => ['nullable'],
-            'screenshots' => ['nullable'],
             'is_available' => ['nullable', 'boolean'],
             'variants' => ['required', 'array', 'min:1'],
-            'variants.*.platform_id' => ['required', 'exists:platforms,id'],
+            'variants.*.platform_id' => ['required', 'distinct', 'exists:platforms,id'],
             'variants.*.price' => ['required', 'numeric', 'min:0'],
             'variants.*.size' => ['required', 'numeric', 'min:0'],
             'variants.*.is_available' => ['nullable', 'boolean'],
+            ...$this->gameImageRules($request),
         ]);
 
-        $imagePath = null;
-        $imageFile = $request->file('image') ?? $request->file('cover') ?? $request->file('poster');
-        if ($imageFile) {
-            $imagePath = $imageFile->store('games', 'public');
-        } elseif (is_string($request->input('image'))) {
-            $imagePath = $request->input('image');
-        } elseif (is_string($request->input('cover'))) {
-            $imagePath = $request->input('cover');
-        } elseif (is_string($request->input('poster'))) {
-            $imagePath = $request->input('poster');
-        }
+        $explicitPlatform = $request->input('platform') ?? $request->input('console');
+        $basePlatform = is_string($explicitPlatform) && $explicitPlatform !== ''
+            ? $explicitPlatform
+            : (Platform::find($validated['variants'][0]['platform_id'])?->name ?? 'PlayStation 5');
 
-        $screenshots = [];
+        $imagePath = $this->resolveGameImageInput($request);
+
+        $screenshots = $this->normalizeImageList($request->input('screenshots'));
         if ($request->hasFile('screenshots')) {
             foreach ($request->file('screenshots') as $file) {
                 $screenshots[] = $file->store('screenshots', 'public');
             }
-        } elseif (is_array($request->input('screenshots'))) {
-            $screenshots = $request->input('screenshots');
         }
 
         $slug = $validated['slug'] ?? Str::slug($validated['title']);
@@ -732,6 +630,10 @@ class AdminController extends Controller
 
     /**
      * Update a game and its platform variants.
+     *
+     * When variants are sent, they replace the game's variant list: listed
+     * platforms are upserted and the others are deleted, or only marked
+     * unavailable when existing orders reference them.
      */
     public function updateGame(Request $request, int|string $id): JsonResponse
     {
@@ -740,129 +642,69 @@ class AdminController extends Controller
             ->orWhere('slug', (string) $id)
             ->firstOrFail();
 
-        if (! $request->filled('title') && $request->filled('name')) {
-            $request->merge(['title' => $request->input('name')]);
-        }
-        if (! $request->filled('developer') && $request->filled('brand')) {
-            $request->merge(['developer' => $request->input('brand')]);
-        }
-        if (! $request->filled('age_rating') && $request->filled('age')) {
-            $request->merge(['age_rating' => (int) $request->input('age')]);
-        }
-        if (! $request->filled('release_date') && $request->filled('releaseDate')) {
-            $request->merge(['release_date' => $request->input('releaseDate')]);
-        }
-        if (! $request->has('is_available') && $request->has('available')) {
-            $request->merge(['is_available' => $request->boolean('available')]);
-        }
+        $this->mergeGameFieldAliases($request);
 
-        $rawVariants = $request->input('variants') ?? $request->input('platforms') ?? null;
-        if (empty($rawVariants) && $request->filled('platform')) {
-            $rawVariants = [$request->input('platform')];
-        }
-        if (empty($rawVariants) && $request->filled('console')) {
-            $rawVariants = [$request->input('console')];
-        }
+        $rawVariants = $this->rawVariantsInput($request);
+        $firstVariant = is_array($rawVariants[0] ?? null) ? $rawVariants[0] : [];
 
         $basePrice = $request->filled('price')
             ? (float) $request->input('price')
-            : (float) ($request->input('base_price') ?? $request->input('basePrice') ?? (is_array($rawVariants) && isset($rawVariants[0]['price']) ? $rawVariants[0]['price'] : $game->price));
+            : (float) ($request->input('base_price') ?? $request->input('basePrice') ?? $firstVariant['price'] ?? $game->price);
 
         $baseSize = $request->filled('size')
             ? (float) $request->input('size')
-            : (float) ($request->input('file_size') ?? $request->input('fileSize') ?? (is_array($rawVariants) && isset($rawVariants[0]['size']) ? $rawVariants[0]['size'] : $game->size));
+            : (float) ($request->input('file_size') ?? $request->input('fileSize') ?? $firstVariant['size'] ?? $game->size);
 
-        if (! empty($rawVariants) && is_array($rawVariants)) {
-            $normalizedVariants = [];
-            foreach ($rawVariants as $v) {
-                if (is_string($v) || is_numeric($v)) {
-                    $platform = Platform::where('slug', $v)
-                        ->orWhere('name', $v)
-                        ->orWhere('id', (int) $v)
-                        ->first();
-                    if ($platform) {
-                        $isCopy = str_contains($platform->slug, 'copy') || $platform->slug === 'other';
-                        $normalizedVariants[] = [
-                            'platform_id' => $platform->id,
-                            'price' => $isCopy ? round($basePrice * 0.35) : $basePrice,
-                            'size' => $baseSize,
-                            'is_available' => true,
-                        ];
-                    }
-                } elseif (is_array($v)) {
-                    $platformId = $v['platform_id'] ?? null;
-                    if (! $platformId && ! empty($v['console'])) {
-                        $platform = Platform::where('slug', $v['console'])
-                            ->orWhere('name', $v['console'])
-                            ->first();
-                        $platformId = $platform?->id;
-                    }
-                    if (! $platformId && ! empty($v['platform'])) {
-                        $platform = Platform::where('slug', $v['platform'])
-                            ->orWhere('name', $v['platform'])
-                            ->first();
-                        $platformId = $platform?->id;
-                    }
-                    if (! $platformId && ! empty($v['slug'])) {
-                        $platform = Platform::where('slug', $v['slug'])->first();
-                        $platformId = $platform?->id;
-                    }
-                    if ($platformId) {
-                        $normalizedVariants[] = [
-                            'platform_id' => $platformId,
-                            'price' => $v['price'] ?? $basePrice,
-                            'size' => $v['size'] ?? $baseSize,
-                            'is_available' => $v['is_available'] ?? $v['available'] ?? true,
-                        ];
-                    }
-                }
-            }
-            if (! empty($normalizedVariants)) {
-                $request->merge(['variants' => $normalizedVariants]);
-            }
-        }
+        $request->merge([
+            'variants' => empty($rawVariants) ? null : $this->normalizeVariants($rawVariants, $basePrice, $baseSize),
+        ]);
 
         $validated = $request->validate([
             'title' => ['nullable', 'string', 'max:255'],
+            'slug' => ['nullable', 'string', 'max:255', Rule::unique('games', 'slug')->ignore($game->id)],
             'genre' => ['nullable', 'string', 'max:100'],
             'developer' => ['nullable', 'string', 'max:100'],
             'release_date' => ['nullable', 'date'],
             'releaseDate' => ['nullable', 'date'],
             'description' => ['nullable', 'string'],
             'age_rating' => ['nullable', 'integer', 'min:3', 'max:21'],
-            'image' => ['nullable'],
-            'cover' => ['nullable'],
-            'poster' => ['nullable'],
-            'screenshots' => ['nullable'],
             'is_available' => ['nullable', 'boolean'],
             'variants' => ['nullable', 'array'],
-            'variants.*.platform_id' => ['required_with:variants', 'exists:platforms,id'],
-            'variants.*.price' => ['required_with:variants', 'numeric', 'min:0'],
-            'variants.*.size' => ['required_with:variants', 'numeric', 'min:0'],
+            'variants.*.platform_id' => ['required', 'distinct', 'exists:platforms,id'],
+            'variants.*.price' => ['required', 'numeric', 'min:0'],
+            'variants.*.size' => ['required', 'numeric', 'min:0'],
             'variants.*.is_available' => ['nullable', 'boolean'],
+            ...$this->gameImageRules($request),
         ]);
 
-        $imageFile = $request->file('image') ?? $request->file('cover') ?? $request->file('poster');
-        if ($imageFile) {
-            $game->image = $imageFile->store('games', 'public');
-        } elseif (is_string($request->input('image'))) {
-            $game->image = $request->input('image');
-        } elseif (is_string($request->input('cover'))) {
-            $game->image = $request->input('cover');
-        } elseif (is_string($request->input('poster'))) {
-            $game->image = $request->input('poster');
+        $obsoleteImage = null;
+        $newImage = $this->resolveGameImageInput($request);
+        if ($newImage !== null) {
+            $obsoleteImage = $game->image;
+            $game->image = $newImage;
+        } elseif ($request->boolean('remove_image')) {
+            $obsoleteImage = $game->image;
+            $game->image = null;
         }
 
-        if ($request->hasFile('screenshots')) {
-            $newScreens = [];
-            foreach ($request->file('screenshots') as $file) {
-                $newScreens[] = $file->store('screenshots', 'public');
+        $screenshotListSent = $request->has('existing_screenshots') || $request->input('screenshots') !== null;
+        if ($screenshotListSent || $request->hasFile('screenshots')) {
+            $screenshots = match (true) {
+                $request->has('existing_screenshots') => $this->normalizeImageList($request->input('existing_screenshots')),
+                $request->input('screenshots') !== null => $this->normalizeImageList($request->input('screenshots')),
+                default => (array) ($game->screenshots ?? []),
+            };
+
+            foreach ($request->hasFile('screenshots') ? $request->file('screenshots') : [] as $file) {
+                $screenshots[] = $file->store('screenshots', 'public');
             }
-            $game->screenshots = array_merge((array) ($game->screenshots ?? []), $newScreens);
-        } elseif (is_array($request->input('screenshots'))) {
-            $game->screenshots = $request->input('screenshots');
+
+            $game->screenshots = array_values($screenshots);
         }
 
+        if (! empty($validated['slug'])) {
+            $game->slug = $validated['slug'];
+        }
         if (isset($validated['title'])) {
             $game->title = $validated['title'];
         }
@@ -899,25 +741,19 @@ class AdminController extends Controller
         }
 
         if ($request->has('modes')) {
-            $modes = $request->input('modes');
-            if (is_string($modes)) {
-                $modes = json_validate($modes) ? json_decode($modes, true) : array_map('trim', explode(',', $modes));
-            }
-            $game->modes = is_array($modes) ? array_values(array_filter($modes)) : null;
+            $game->modes = $this->decodeListInput($request->input('modes'));
         }
 
         if ($request->has('languages')) {
-            $languages = $request->input('languages');
-            if (is_string($languages)) {
-                $languages = json_validate($languages) ? json_decode($languages, true) : array_map('trim', explode(',', $languages));
-            }
-            $game->languages = is_array($languages) ? array_values(array_filter($languages)) : null;
+            $game->languages = $this->decodeListInput($request->input('languages'));
         }
 
         DB::transaction(function () use ($game, $validated, $request) {
             $game->save();
 
             if (! empty($validated['variants'])) {
+                $keptPlatformIds = [];
+
                 foreach ($validated['variants'] as $v) {
                     $game->variants()->updateOrCreate(
                         ['platform_id' => $v['platform_id']],
@@ -927,7 +763,10 @@ class AdminController extends Controller
                             'is_available' => $v['is_available'] ?? true,
                         ]
                     );
+                    $keptPlatformIds[] = (int) $v['platform_id'];
                 }
+
+                $this->retireRemovedVariants($game, $keptPlatformIds);
             } elseif ($request->has('price') || $request->has('size')) {
                 // Sync updated price/size to all existing variants if no specific variants passed
                 foreach ($game->variants as $variant) {
@@ -940,6 +779,8 @@ class AdminController extends Controller
                 }
             }
         });
+
+        $this->deleteUploadedGameImage($obsoleteImage, $game->image);
 
         $catalogData = $game->fresh(['variants.platform'])->toCatalogArray();
 
@@ -976,7 +817,7 @@ class AdminController extends Controller
         return response()->json([
             'ok' => true,
             'message' => 'اسکرین‌شات‌ها با موفقیت ذخیره شدند.',
-            'screenshots' => array_map(fn ($p) => url('storage/'.ltrim($p, '/')), $currentScreenshots),
+            'screenshots' => array_map(fn (string $path) => Game::publicImageUrl($path), $currentScreenshots),
         ]);
     }
 
@@ -1085,6 +926,257 @@ class AdminController extends Controller
             'ok' => true,
             'message' => 'بنر با موفقیت حذف شد.',
         ]);
+    }
+
+    /**
+     * Map the alternative field names the frontend may send onto the canonical ones.
+     */
+    private function mergeGameFieldAliases(Request $request): void
+    {
+        if (! $request->filled('title') && $request->filled('name')) {
+            $request->merge(['title' => $request->input('name')]);
+        }
+        if (! $request->filled('developer') && $request->filled('brand')) {
+            $request->merge(['developer' => $request->input('brand')]);
+        }
+        if (! $request->filled('age_rating') && $request->filled('age')) {
+            $request->merge(['age_rating' => (int) $request->input('age')]);
+        }
+        if (! $request->filled('release_date') && $request->filled('releaseDate')) {
+            $request->merge(['release_date' => $request->input('releaseDate')]);
+        }
+        if (! $request->has('is_available') && $request->has('available')) {
+            $request->merge(['is_available' => $request->input('available')]);
+        }
+
+        $isAvailable = $this->toBooleanOrOriginal($request->input('is_available'));
+        if ($isAvailable !== null) {
+            $request->merge(['is_available' => $isAvailable]);
+        }
+    }
+
+    /**
+     * Read the variants list from any supported input shape (array, JSON string,
+     * or a single platform/console value).
+     *
+     * @return array<int, mixed>|null
+     */
+    private function rawVariantsInput(Request $request): ?array
+    {
+        $rawVariants = $request->input('variants') ?? $request->input('platforms');
+
+        if (empty($rawVariants) && $request->filled('platform')) {
+            $rawVariants = [$request->input('platform')];
+        }
+        if (empty($rawVariants) && $request->filled('console')) {
+            $rawVariants = [$request->input('console')];
+        }
+
+        return $this->decodeListInput($rawVariants);
+    }
+
+    /**
+     * Decode list input that may arrive as an array, a JSON string (multipart
+     * FormData) or a comma-separated string.
+     *
+     * @return array<int, mixed>|null
+     */
+    private function decodeListInput(mixed $value): ?array
+    {
+        if (is_string($value)) {
+            $value = json_validate($value) ? json_decode($value, true) : array_map('trim', explode(',', $value));
+        }
+
+        if (! is_array($value)) {
+            return null;
+        }
+
+        return array_values(array_filter($value, fn ($item) => $item !== null && $item !== '' && $item !== []));
+    }
+
+    /**
+     * Turn variant input into rows for validation. Platforms may be referenced
+     * by id, slug or name; unresolvable references are kept as-is so that
+     * validation reports them instead of silently dropping them.
+     *
+     * @param  array<int, mixed>  $rawVariants
+     * @return list<array{platform_id: mixed, price: mixed, size: mixed, is_available: mixed}>
+     */
+    private function normalizeVariants(array $rawVariants, float $basePrice, float $baseSize): array
+    {
+        $normalized = [];
+
+        foreach ($rawVariants as $variant) {
+            if (is_array($variant)) {
+                $reference = $variant['platform_id'] ?? $variant['console'] ?? $variant['platform'] ?? $variant['slug'] ?? null;
+                $platform = $this->resolvePlatform($reference);
+
+                $normalized[] = [
+                    'platform_id' => $platform?->id ?? (is_scalar($reference) ? $reference : null),
+                    'price' => $variant['price'] ?? $basePrice,
+                    'size' => $variant['size'] ?? $baseSize,
+                    'is_available' => $this->toBooleanOrOriginal($variant['is_available'] ?? $variant['available'] ?? true),
+                ];
+
+                continue;
+            }
+
+            $platform = $this->resolvePlatform($variant);
+            $isCopy = $platform && (str_contains($platform->slug, 'copy') || $platform->slug === 'other');
+
+            $normalized[] = [
+                'platform_id' => $platform?->id ?? $variant,
+                'price' => $isCopy ? round($basePrice * 0.35) : $basePrice,
+                'size' => $baseSize,
+                'is_available' => true,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @return list<array{platform_id: int, price: float, size: float, is_available: bool}>
+     */
+    private function defaultVariantsForAllPlatforms(float $basePrice, float $baseSize): array
+    {
+        return Platform::all()->map(fn (Platform $platform) => [
+            'platform_id' => $platform->id,
+            'price' => (str_contains($platform->slug, 'copy') || $platform->slug === 'other') ? round($basePrice * 0.35) : $basePrice,
+            'size' => $baseSize,
+            'is_available' => true,
+        ])->all();
+    }
+
+    private function resolvePlatform(mixed $reference): ?Platform
+    {
+        if (is_array($reference)) {
+            $reference = $reference['slug'] ?? $reference['id'] ?? null;
+        }
+
+        if (is_int($reference) || (is_string($reference) && ctype_digit($reference))) {
+            return Platform::find((int) $reference);
+        }
+
+        if (! is_string($reference) || $reference === '') {
+            return null;
+        }
+
+        return Platform::where('slug', $reference)->orWhere('name', $reference)->first();
+    }
+
+    private function toBooleanOrOriginal(mixed $value): mixed
+    {
+        if (! is_string($value)) {
+            return $value;
+        }
+
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? $value;
+    }
+
+    /**
+     * Validation rules for cover and screenshot inputs, which may be uploaded
+     * files or existing image references.
+     *
+     * @return array<string, array<int, string>>
+     */
+    private function gameImageRules(Request $request): array
+    {
+        $rules = [];
+
+        foreach (['image', 'cover', 'poster'] as $field) {
+            $rules[$field] = $request->hasFile($field)
+                ? ['image', 'max:4096']
+                : ['nullable', 'string', 'max:2048'];
+        }
+
+        $rules['screenshots'] = ['nullable'];
+        $rules['screenshots.*'] = $request->hasFile('screenshots')
+            ? ['image', 'max:4096']
+            : ['nullable', 'string', 'max:2048'];
+        $rules['existing_screenshots'] = ['nullable'];
+        $rules['remove_image'] = ['nullable', 'boolean'];
+
+        return $rules;
+    }
+
+    /**
+     * Store an uploaded cover, or normalize a cover reference sent as a string.
+     */
+    private function resolveGameImageInput(Request $request): ?string
+    {
+        foreach (['image', 'cover', 'poster'] as $field) {
+            if ($request->hasFile($field)) {
+                return $request->file($field)->store('games', 'public');
+            }
+        }
+
+        foreach (['image', 'cover', 'poster'] as $field) {
+            $value = $request->input($field);
+            if (is_string($value) && $value !== '') {
+                return Game::normalizeImageReference($value);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function normalizeImageList(mixed $value): array
+    {
+        return collect($this->decodeListInput($value) ?? [])
+            ->filter(fn ($reference) => is_string($reference) && $reference !== '')
+            ->map(fn (string $reference) => Game::normalizeImageReference($reference))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Delete a replaced cover file. Only files uploaded through the admin
+     * panel (stored under "games/") are removed; seeded or shared images stay.
+     */
+    private function deleteUploadedGameImage(?string $reference, ?string $currentImage): void
+    {
+        if ($reference === null || $reference === $currentImage) {
+            return;
+        }
+
+        $path = Game::normalizeImageReference($reference);
+
+        if (Str::startsWith($path, 'games/')) {
+            Storage::disk('public')->delete($path);
+        }
+    }
+
+    /**
+     * Remove variants that are no longer listed. Variants referenced by orders
+     * are kept for order history and only marked unavailable.
+     *
+     * @param  list<int>  $keptPlatformIds
+     */
+    private function retireRemovedVariants(Game $game, array $keptPlatformIds): void
+    {
+        $removedVariants = $game->variants()->whereNotIn('platform_id', $keptPlatformIds)->get();
+
+        if ($removedVariants->isEmpty()) {
+            return;
+        }
+
+        $orderedVariantIds = OrderItem::query()
+            ->whereIn('game_variant_id', $removedVariants->modelKeys())
+            ->distinct()
+            ->pluck('game_variant_id')
+            ->all();
+
+        foreach ($removedVariants as $variant) {
+            if (in_array($variant->id, $orderedVariantIds, true)) {
+                $variant->update(['is_available' => false]);
+            } else {
+                $variant->delete();
+            }
+        }
     }
 
     /**

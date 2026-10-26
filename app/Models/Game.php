@@ -115,6 +115,45 @@ class Game extends Model
         });
     }
 
+    /**
+     * Normalize an image reference for storage. Our own storage URLs (on any
+     * host) and legacy "storage/..." paths become public-disk paths, so they
+     * keep working when the API host changes. External URLs are kept as-is.
+     */
+    public static function normalizeImageReference(string $reference): string
+    {
+        $reference = trim($reference);
+
+        if (Str::startsWith($reference, ['http://', 'https://'])) {
+            $path = (string) parse_url($reference, PHP_URL_PATH);
+
+            return Str::startsWith($path, '/storage/') ? Str::after($path, '/storage/') : $reference;
+        }
+
+        $path = ltrim($reference, '/');
+
+        return Str::startsWith($path, 'storage/') ? Str::after($path, 'storage/') : $reference;
+    }
+
+    /**
+     * Build the public URL for a stored image reference: an external URL, a
+     * public-disk path, or an asset under the public directory ("/images/...").
+     */
+    public static function publicImageUrl(string $reference): string
+    {
+        $normalized = self::normalizeImageReference($reference);
+
+        if (Str::startsWith($normalized, ['http://', 'https://'])) {
+            return $normalized;
+        }
+
+        if (Str::startsWith($normalized, '/')) {
+            return url($normalized);
+        }
+
+        return url('storage/'.$normalized);
+    }
+
     public function resolveRouteBinding($value, $field = null)
     {
         return $this->where($field ?? (is_numeric($value) ? 'id' : 'slug'), $value)->firstOrFail();
@@ -167,26 +206,11 @@ class Game extends Model
         $releaseDate = $this->release_date ? $this->release_date->format('Y-m-d') : '2023-10-20';
         $releaseDateJalali = $this->release_date ? Jalali::fromDateTime($this->release_date) : '۱۴۰۲/۰۷/۲۸';
 
-        $defaultScreenshots = [
-            url('storage/screenshots/gow-1.jpg'),
-            url('storage/screenshots/gow-2.jpg'),
-        ];
-
-        $screenshots = [];
-        if (! empty($this->screenshots) && is_array($this->screenshots)) {
-            foreach ($this->screenshots as $img) {
-                if (empty($img)) {
-                    continue;
-                }
-                $screenshots[] = Str::startsWith($img, ['http://', 'https://'])
-                    ? $img
-                    : url(ltrim($img, '/'));
-            }
-        }
-
-        if (empty($screenshots)) {
-            $screenshots = $defaultScreenshots;
-        }
+        $screenshots = collect(is_array($this->screenshots) ? $this->screenshots : [])
+            ->filter(fn ($img) => is_string($img) && $img !== '')
+            ->map(fn (string $img) => self::publicImageUrl($img))
+            ->values()
+            ->all();
 
         $variants = $this->relationLoaded('variants') ? $this->variants : $this->variants()->with('platform')->get();
 
@@ -211,7 +235,7 @@ class Game extends Model
         $basePlatformSlug = $firstVariant?->platform?->slug ?? 'ps5';
 
         $imageUrl = $this->image
-            ? (Str::startsWith($this->image, ['http://', 'https://']) ? $this->image : url('storage/'.ltrim($this->image, '/')))
+            ? self::publicImageUrl($this->image)
             : url('/images/logosite.png');
 
         return [
