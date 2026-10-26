@@ -157,6 +157,26 @@ class BackendRegressionTest extends TestCase
         $this->assertSame($baselineQueries, count(DB::getQueryLog()));
     }
 
+    public function test_game_without_ratings_reports_zero_rating_instead_of_placeholder(): void
+    {
+        $platform = Platform::firstOrCreate(['slug' => 'ps5'], ['name' => 'PS5']);
+        $game = $this->createAvailableGame($platform);
+
+        $this->getJson(route('api.products.show', $game->slug))
+            ->assertOk()
+            ->assertJsonPath('data.ratingCount', 0)
+            ->assertJsonPath('data.user_rating', null);
+        $this->assertEquals(0, $this->getJson(route('api.products.show', $game->slug))->json('data.rate'));
+
+        $voters = User::factory()->count(2)->create();
+        $this->actingAs($voters[0])->postJson(route('api.games.rate', $game->id), ['rating' => 4])->assertOk();
+        $this->actingAs($voters[1])->postJson(route('api.games.rate', $game->id), ['rating' => 5])->assertOk();
+
+        $listedGame = collect($this->getJson(route('api.products.index'))->json('data'))->firstWhere('id', $game->id);
+        $this->assertEquals(4.5, $listedGame['rate']);
+        $this->assertSame(2, $listedGame['ratingCount']);
+    }
+
     public function test_updating_a_rating_keeps_its_original_created_at(): void
     {
         $user = User::factory()->create();

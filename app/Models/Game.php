@@ -170,8 +170,8 @@ class Game extends Model
             ? (int) $attributes['ratings_count']
             : $this->ratings()->count();
 
-        $rate = $avgRating ? round((float) $avgRating, 1) : 4.8;
-        $count = $ratingCount > 0 ? $ratingCount : 12;
+        $rate = $avgRating !== null ? round((float) $avgRating, 1) : 0.0;
+        $count = $ratingCount;
 
         $userRating = null;
         $user = $currentUser ?? auth('sanctum')->user();
