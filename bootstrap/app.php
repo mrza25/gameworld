@@ -6,6 +6,10 @@ use App\Http\Middleware\ExtractTokenFromCookie;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\Response;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -24,5 +28,23 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
-        //
+        // Give framework-generated API errors (validation, 401, 404, ...) the same
+        // { ok: false, error } envelope as the controllers' own error responses.
+        $exceptions->respond(function (Response $response, Throwable $e, Request $request) {
+            if (! $request->is('api/*') || ! $response instanceof JsonResponse || $response->getStatusCode() < 400) {
+                return $response;
+            }
+
+            $data = $response->getData(true);
+
+            if (! is_array($data) || array_key_exists('ok', $data)) {
+                return $response;
+            }
+
+            $error = $e instanceof ValidationException
+                ? collect($e->errors())->flatten()->first()
+                : ($data['message'] ?? null);
+
+            return $response->setData(['ok' => false, 'error' => $error ?: 'خطایی رخ داد.'] + $data);
+        });
     })->create();
