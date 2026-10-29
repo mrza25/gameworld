@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Helpers\Jalali;
 use App\OrderStatus;
 use App\PaymentStatus;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -39,6 +40,26 @@ class Order extends Model
     // {
     //     return $this->belongsTo(Console::class);
     // }
+
+    /**
+     * Turn an order reference as shown to users ("123", "#123", "ORD-123") into its id.
+     */
+    public static function idFromReference(int|string $reference): int
+    {
+        return (int) preg_replace('/^(#|ORD-)/i', '', trim((string) $reference));
+    }
+
+    /**
+     * Orders placed for the given console slug(s), comma-separated. Orders store
+     * the console name, so slugs are matched through the platforms table.
+     */
+    public function scopeForConsole(Builder $query, string $consoleSlugs): Builder
+    {
+        $slugs = array_filter(array_map('trim', explode(',', $consoleSlugs)));
+        $names = Platform::whereIn('slug', $slugs)->pluck('name')->all();
+
+        return $query->whereIn('console_type', array_merge($names, $slugs));
+    }
 
     public function items(): HasMany
     {
@@ -101,9 +122,14 @@ class Order extends Model
         $platform = Platform::findByNameOrSlug($this->console_type);
         $consoleSlug = $platform?->slug ?? Str::slug($this->console_type);
 
+        $paymentMethod = $this->payments
+            ->first(fn (Payment $payment) => $payment->status === PaymentStatus::Paid)
+            ?->method?->value;
+
         return [
             'id' => $this->id,
             'orderId' => '#'.$this->id,
+            'paymentMethod' => $paymentMethod,
             'userId' => $this->user_id,
             'name' => $this->user?->name,
             'phone' => $this->user?->phonenumber,
@@ -124,6 +150,20 @@ class Order extends Model
                 'productId' => $item->game?->slug ?? (string) $item->game_id,
                 'gameId' => $item->game_id,
                 'variantId' => $item->game_variant_id,
+                'variant_id' => $item->game_variant_id,
+                'game' => $item->game ? [
+                    'id' => $item->game->id,
+                    'title' => $item->game->title,
+                    'slug' => $item->game->slug,
+                    'image' => $item->game->coverUrl(),
+                ] : null,
+                'variant' => $item->gameVariant ? [
+                    'id' => $item->gameVariant->id,
+                    'platform_id' => $item->gameVariant->platform?->slug,
+                    'platform' => $item->gameVariant->platform?->slug,
+                    'platform_info' => $item->gameVariant->platform?->toConsoleArray(),
+                    'size' => (float) $item->gameVariant->size,
+                ] : null,
                 'title' => $item->game?->title,
                 'genre' => $item->game?->genre,
                 'price' => (float) $item->price,

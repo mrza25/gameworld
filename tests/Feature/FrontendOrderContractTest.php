@@ -173,6 +173,50 @@ class FrontendOrderContractTest extends TestCase
             ->assertJsonPath('balance', 2500000);
     }
 
+    public function test_order_items_include_game_and_variant_objects_and_payment_method(): void
+    {
+        $this->platform->update(['short' => 'PS5 کپی‌خور', 'brand' => 'playstation']);
+        $user = User::factory()->create();
+        $user->wallet()->create(['balance' => 1000000]);
+        $orderId = $this->checkout($user, 'wallet')->json('data.order_id');
+
+        $this->actingAs($user)->getJson(route('api.orders.show', "ORD-{$orderId}"))
+            ->assertOk()
+            ->assertJsonPath('data.id', $orderId)
+            ->assertJsonPath('data.paymentMethod', 'wallet')
+            ->assertJsonPath('data.items.0.variant_id', $this->variant->id)
+            ->assertJsonPath('data.items.0.game.slug', 'god-of-war')
+            ->assertJsonPath('data.items.0.game.image', url('storage/games/gow.jpg'))
+            ->assertJsonPath('data.items.0.variant.platform_id', 'ps5-copy')
+            ->assertJsonPath('data.items.0.variant.platform_info.short', 'PS5 کپی‌خور')
+            ->assertJsonPath('data.items.0.variant.size', 120);
+    }
+
+    public function test_order_list_filters_by_status_and_console_and_paginates_on_request(): void
+    {
+        $user = User::factory()->create();
+        $user->wallet()->create(['balance' => 5000000]);
+        foreach (range(1, 3) as $i) {
+            $this->checkout($user, 'wallet')->assertCreated();
+        }
+        Order::where('user_id', $user->id)->latest('id')->first()->update(['status' => 'processing']);
+
+        $this->actingAs($user)->getJson(route('api.orders.index', ['status' => 'pending']))
+            ->assertOk()->assertJsonCount(2, 'data');
+        $this->actingAs($user)->getJson(route('api.orders.index', ['console' => 'ps5-copy']))
+            ->assertOk()->assertJsonCount(3, 'data');
+        $this->actingAs($user)->getJson(route('api.orders.index', ['console' => 'ps4']))
+            ->assertOk()->assertJsonCount(0, 'data');
+
+        $this->actingAs($user)->getJson(route('api.orders.index'))
+            ->assertOk()->assertJsonCount(3, 'data')->assertJsonMissingPath('meta');
+        $this->actingAs($user)->getJson(route('api.orders.index', ['per_page' => 2]))
+            ->assertOk()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('meta.total', 3)
+            ->assertJsonPath('meta.last_page', 2);
+    }
+
     public function test_order_items_include_variant_size_and_game_image(): void
     {
         $user = User::factory()->create();

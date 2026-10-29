@@ -24,19 +24,39 @@ class OrderController extends Controller
 
     /**
      * List current authenticated customer's orders.
+     *
+     * Optional filters: status, payment_status, console (slug). Returns the
+     * full list, or a page of it when `page` or `per_page` is given.
      */
     public function index(Request $request): JsonResponse
     {
-        $orders = $request->user()
+        $query = $request->user()
             ->orders()
-            ->with(['items.game', 'items.gameVariant.platform'])
+            ->with(['items.game', 'items.gameVariant.platform', 'payments'])
             ->latest()
-            ->get()
-            ->map(fn (Order $order) => $this->transformOrder($order));
+            ->orderByDesc('id');
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->input('status'));
+        }
+
+        if ($request->filled('payment_status')) {
+            $query->where('payment_status', $request->input('payment_status'));
+        }
+
+        if ($request->filled('console')) {
+            $query->forConsole((string) $request->input('console'));
+        }
+
+        if ($request->hasAny(['page', 'per_page'])) {
+            $orders = $query->paginate(min(max($request->integer('per_page', 15), 1), 100))->withQueryString();
+
+            return $this->paginatedResponse($orders, $orders->getCollection()->map(fn (Order $order) => $this->transformOrder($order)));
+        }
 
         return response()->json([
             'ok' => true,
-            'data' => $orders,
+            'data' => $query->get()->map(fn (Order $order) => $this->transformOrder($order)),
         ]);
     }
 
@@ -45,14 +65,13 @@ class OrderController extends Controller
      */
     public function show(Request $request, int|string $id): JsonResponse
     {
-        $cleanId = (int) ltrim((string) $id, '#');
         $query = $request->user()->is_admin
             ? Order::query()
             : $request->user()->orders();
 
         $order = $query
-            ->with(['items.game', 'items.gameVariant.platform'])
-            ->findOrFail($cleanId);
+            ->with(['items.game', 'items.gameVariant.platform', 'payments'])
+            ->findOrFail(Order::idFromReference($id));
 
         $orderData = $this->transformOrder($order);
 

@@ -87,24 +87,7 @@ class ProductController extends Controller
         if ($request->hasAny(['page', 'per_page'])) {
             $games = $query->paginate(min(max($request->integer('per_page', 12), 1), 48))->withQueryString();
 
-            return response()->json([
-                'ok' => true,
-                'data' => $games->getCollection()->map(fn (Game $game) => $this->transformGame($game))->values(),
-                'links' => [
-                    'first' => $games->url(1),
-                    'last' => $games->url($games->lastPage()),
-                    'prev' => $games->previousPageUrl(),
-                    'next' => $games->nextPageUrl(),
-                ],
-                'meta' => [
-                    'current_page' => $games->currentPage(),
-                    'last_page' => $games->lastPage(),
-                    'per_page' => $games->perPage(),
-                    'total' => $games->total(),
-                    'from' => $games->firstItem(),
-                    'to' => $games->lastItem(),
-                ],
-            ]);
+            return $this->paginatedResponse($games, $games->getCollection()->map(fn (Game $game) => $this->transformGame($game)));
         }
 
         return response()->json([
