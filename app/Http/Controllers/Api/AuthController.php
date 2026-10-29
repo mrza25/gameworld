@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -45,6 +46,7 @@ class AuthController extends Controller
             'lastName' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:20'],
             'phonenumber' => ['nullable', 'string', 'max:20'],
+            'email' => ['nullable', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:6'],
             'code' => ['nullable', 'string'],
         ]);
@@ -81,6 +83,7 @@ class AuthController extends Controller
         $user = User::create([
             'name' => $fullName,
             'phonenumber' => $phone,
+            'email' => isset($validated['email']) ? Str::lower($validated['email']) : null,
             'password' => Hash::make($validated['password']),
             'is_admin' => false,
         ]);
@@ -322,9 +325,14 @@ class AuthController extends Controller
         $validated = $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:20'],
+            'email' => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
         ]);
 
         $updates = [];
+
+        if ($request->has('email')) {
+            $updates['email'] = isset($validated['email']) ? Str::lower($validated['email']) : null;
+        }
         if (! empty($validated['name'])) {
             $updates['name'] = trim($validated['name']);
         }
@@ -478,6 +486,7 @@ class AuthController extends Controller
             'id' => $user->id,
             'name' => $user->name,
             'phone' => $user->phonenumber,
+            'email' => $user->email,
             'avatar' => $user->avatar_url,
             'role' => $user->is_admin ? 'admin' : 'user',
             'isAdmin' => (bool) $user->is_admin,

@@ -335,14 +335,19 @@ class AdminController extends Controller
      */
     public function users(Request $request): JsonResponse
     {
-        $query = User::with('wallet')->latest();
+        $query = User::with('wallet')->withCount('orders')->latest();
 
         if ($request->filled('search')) {
             $q = $request->search;
             $query->where(function ($sq) use ($q) {
                 $sq->where('name', 'like', "%{$q}%")
-                    ->orWhere('phonenumber', 'like', "%{$q}%");
+                    ->orWhere('phonenumber', 'like', "%{$q}%")
+                    ->orWhere('email', 'like', "%{$q}%");
             });
+        }
+
+        if (in_array($request->input('role'), ['admin', 'user'], true)) {
+            $query->where('is_admin', $request->input('role') === 'admin');
         }
 
         if ($request->filled('from_date')) {
@@ -354,6 +359,11 @@ class AdminController extends Controller
         }
 
         $users = $query->paginate($this->perPage($request));
+        $users->getCollection()->transform(fn (User $user) => $user->toArray() + [
+            'phone' => $user->phonenumber,
+            'role' => $user->is_admin ? 'admin' : 'user',
+            'wallet_balance' => (float) ($user->wallet?->balance ?? 0),
+        ]);
         $paginatorArray = $users->toArray();
         $meta = [
             'current_page' => $users->currentPage(),
@@ -376,21 +386,30 @@ class AdminController extends Controller
      */
     public function storeUser(Request $request): JsonResponse
     {
+        $this->mergeRoleAlias($request);
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'phone' => ['required', 'string', 'max:20', 'unique:users,phonenumber'],
+            'email' => ['nullable', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:6'],
             'is_admin' => ['nullable', 'boolean'],
+            'wallet_balance' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         $user = User::create([
             'name' => $validated['name'],
             'phonenumber' => $validated['phone'],
+            'email' => isset($validated['email']) ? Str::lower($validated['email']) : null,
             'password' => Hash::make($validated['password']),
             'is_admin' => $validated['is_admin'] ?? false,
         ]);
 
         $user->wallet()->firstOrCreate(['user_id' => $user->id], ['balance' => 0]);
+
+        if (! empty($validated['wallet_balance'])) {
+            $this->adjustWalletBalance($user, (float) $validated['wallet_balance']);
+        }
 
         return response()->json([
             'ok' => true,
@@ -406,13 +425,26 @@ class AdminController extends Controller
     {
         $user = User::findOrFail($id);
 
+        $this->mergeRoleAlias($request);
+
         $validated = $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:20', 'unique:users,phonenumber,'.$id],
+            'email' => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'password' => ['nullable', 'string', 'min:6'],
             'is_admin' => ['nullable', 'boolean'],
             'wallet_balance' => ['nullable', 'numeric', 'min:0'],
         ]);
+
+        if ($user->is($request->user()) && isset($validated['is_admin']) && ! $validated['is_admin']) {
+            throw ValidationException::withMessages([
+                'role' => 'نمی‌توانید دسترسی مدیریت خودتان را بردارید.',
+            ]);
+        }
+
+        if ($request->has('email')) {
+            $user->email = isset($validated['email']) ? Str::lower($validated['email']) : null;
+        }
 
         if (isset($validated['name'])) {
             $user->name = $validated['name'];
@@ -1249,6 +1281,16 @@ class AdminController extends Controller
             $this->walletService->credit($user, $difference, 'admin-adjustment', 'Balance adjusted by admin');
         } elseif ($difference < 0) {
             $this->walletService->debit($user, abs($difference), 'admin-adjustment', 'Balance adjusted by admin');
+        }
+    }
+
+    /**
+     * Accept role ("admin" | "user") as an alias for is_admin.
+     */
+    private function mergeRoleAlias(Request $request): void
+    {
+        if (! $request->has('is_admin') && in_array($request->input('role'), ['admin', 'user'], true)) {
+            $request->merge(['is_admin' => $request->input('role') === 'admin']);
         }
     }
 
