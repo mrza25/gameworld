@@ -127,6 +127,8 @@ class Order extends Model
                 'title' => $item->game?->title,
                 'genre' => $item->game?->genre,
                 'price' => (float) $item->price,
+                'size' => $item->gameVariant ? (float) $item->gameVariant->size : null,
+                'image' => $item->game?->coverUrl(),
                 'quantity' => $item->quantity,
                 'installStatus' => $installMap[$item->installation_status] ?? $item->installation_status,
                 'installStatusRaw' => $item->installation_status,

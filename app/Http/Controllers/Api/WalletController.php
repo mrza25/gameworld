@@ -25,6 +25,7 @@ class WalletController extends Controller
     public function index(Request $request): JsonResponse
     {
         $wallet = $this->walletService->getOrCreateWallet($request->user());
+        $balance = (float) $wallet->balance;
 
         $transactions = $wallet->transactions()
             ->latest()
@@ -42,7 +43,11 @@ class WalletController extends Controller
 
         return response()->json([
             'ok' => true,
-            'balance' => (float) $wallet->balance,
+            'data' => [
+                'balance' => $balance,
+                'transactions' => $transactions,
+            ],
+            'balance' => $balance,
             'transactions' => $transactions,
         ]);
     }
@@ -97,6 +102,13 @@ class WalletController extends Controller
 
         return response()->json([
             'ok' => true,
+            'data' => [
+                'method' => 'gateway',
+                'gateway_url' => $callbackUrl,
+                'payment_id' => $payment->id,
+                'transaction_id' => $payment->transaction_id,
+                'amount' => (float) $payment->amount,
+            ],
             'payment_id' => $payment->id,
             'amount' => (float) $payment->amount,
             'transaction_id' => $payment->transaction_id,
@@ -116,6 +128,10 @@ class WalletController extends Controller
 
     /**
      * Complete wallet top-up callback.
+     *
+     * This is where the payment gateway sends the customer's browser back, so it
+     * does not require an API token: the payment is authenticated by verifying
+     * its transaction with the gateway.
      */
     public function callback(Request $request)
     {
@@ -127,18 +143,7 @@ class WalletController extends Controller
         $payment = Payment::findOrFail($request->integer('payment'));
         $frontendUrl = config('app.frontend_url');
 
-        if ($payment->user_id !== $request->user()->id) {
-            if (! $request->wantsJson()) {
-                return redirect("{$frontendUrl}/my/wallet?payment=failed&error=unauthorized");
-            }
-
-            return response()->json([
-                'ok' => false,
-                'error' => 'دسترسی غیرمجاز.',
-            ], 403);
-        }
-
-        if ($payment->status === PaymentStatus::Paid) {
+        if ($payment->status === PaymentStatus::Paid && $payment->matchesTransaction($request->string('transaction_id')->toString())) {
             $redirectUrl = "{$frontendUrl}/my/wallet?payment=success";
             if (! $request->wantsJson()) {
                 return redirect($redirectUrl);
@@ -147,7 +152,7 @@ class WalletController extends Controller
             return response()->json([
                 'ok' => true,
                 'message' => 'این تراکنش قبلاً با موفقیت انجام شده است.',
-                'balance' => (float) $request->user()->wallet->balance,
+                'balance' => (float) $payment->user->wallet?->balance,
                 'redirect_url' => $redirectUrl,
             ]);
         }
@@ -170,7 +175,7 @@ class WalletController extends Controller
             ], 422);
         }
 
-        $balance = (float) $request->user()->fresh()->wallet->balance;
+        $balance = (float) $payment->user->wallet()->value('balance');
         $redirectUrl = "{$frontendUrl}/my/wallet?payment=success&balance={$balance}";
 
         if (! $request->wantsJson()) {

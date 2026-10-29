@@ -31,6 +31,14 @@ class Payment extends Model
         'metadata' => 'array',
     ];
 
+    /**
+     * Whether the given gateway transaction id belongs to this payment.
+     */
+    public function matchesTransaction(string $transactionId): bool
+    {
+        return is_string($this->transaction_id) && hash_equals($this->transaction_id, $transactionId);
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

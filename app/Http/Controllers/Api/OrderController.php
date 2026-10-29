@@ -228,6 +228,7 @@ class OrderController extends Controller
                 );
 
                 $orderData = $this->transformOrder($order->fresh(['items.game', 'items.gameVariant.platform']));
+                $message = 'پرداخت با موفقیت انجام شد و سفارش شما ثبت گردید.';
 
                 return response()->json([
                     'ok' => true,
@@ -235,8 +236,13 @@ class OrderController extends Controller
                     'order_id' => $order->id,
                     'id' => $order->id,
                     'order' => $orderData,
-                    'data' => $orderData,
-                    'message' => 'پرداخت با موفقیت انجام شد و سفارش شما ثبت گردید.',
+                    'data' => [
+                        'method' => 'wallet',
+                        'order_id' => $order->id,
+                        'message' => $message,
+                        'order' => $orderData,
+                    ],
+                    'message' => $message,
                 ], 201);
             } catch (RuntimeException $e) {
                 return response()->json([
@@ -268,6 +274,15 @@ class OrderController extends Controller
 
             return response()->json([
                 'ok' => true,
+                'data' => [
+                    'method' => 'gateway',
+                    'gateway_url' => $callbackUrl,
+                    'payment_id' => $payment->id,
+                    'transaction_id' => $payment->transaction_id,
+                    'amount' => (float) $payment->amount,
+                    // The order is only created after the gateway confirms payment.
+                    'order_id' => null,
+                ],
                 'method' => 'gateway',
                 'payment_id' => $payment->id,
                 'transaction_id' => $payment->transaction_id,
@@ -294,6 +309,10 @@ class OrderController extends Controller
 
     /**
      * Complete gateway payment verification for an order.
+     *
+     * This is where the payment gateway sends the customer's browser back, so it
+     * does not require an API token: the payment is authenticated by verifying
+     * its transaction with the gateway.
      */
     public function callback(Request $request)
     {
@@ -305,18 +324,7 @@ class OrderController extends Controller
         $payment = Payment::findOrFail($request->integer('payment'));
         $frontendUrl = config('app.frontend_url');
 
-        if ($payment->user_id !== $request->user()->id) {
-            if (! $request->wantsJson()) {
-                return redirect("{$frontendUrl}/my/orders?payment=failed&error=unauthorized");
-            }
-
-            return response()->json([
-                'ok' => false,
-                'error' => 'دسترسی غیرمجاز.',
-            ], 403);
-        }
-
-        if ($payment->status === PaymentStatus::Paid && $payment->order_id) {
+        if ($payment->status === PaymentStatus::Paid && $payment->order_id && $payment->matchesTransaction($request->string('transaction_id')->toString())) {
             $order = Order::with(['items.game', 'items.gameVariant.platform'])->find($payment->order_id);
             $redirectUrl = "{$frontendUrl}/my/orders?payment=success&order_id={$payment->order_id}";
 

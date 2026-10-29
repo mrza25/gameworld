@@ -154,6 +154,14 @@ class Game extends Model
         return url('storage/'.$normalized);
     }
 
+    /**
+     * Public URL of the cover image, falling back to the site logo.
+     */
+    public function coverUrl(): string
+    {
+        return $this->image ? self::publicImageUrl($this->image) : url('/images/logosite.png');
+    }
+
     public function resolveRouteBinding($value, $field = null)
     {
         return $this->where($field ?? (is_numeric($value) ? 'id' : 'slug'), $value)->firstOrFail();
@@ -217,7 +225,7 @@ class Game extends Model
         $variantList = $variants->map(fn ($variant) => [
             'id' => $variant->id,
             'variant_id' => $variant->id,
-            'platform_id' => $variant->platform_id,
+            'platform_id' => $variant->platform?->slug ?? 'other',
             'console' => $variant->platform?->slug ?? 'other',
             'platform' => $variant->platform?->slug ?? 'other',
             'console_name' => $variant->platform?->name ?? 'کنسول',
@@ -234,9 +242,7 @@ class Game extends Model
         $basePlatform = $this->platform ?? ($firstVariant?->platform?->name ?? 'PlayStation 5');
         $basePlatformSlug = $firstVariant?->platform?->slug ?? 'ps5';
 
-        $imageUrl = $this->image
-            ? self::publicImageUrl($this->image)
-            : url('/images/logosite.png');
+        $imageUrl = $this->coverUrl();
 
         return [
             'id' => $this->id,

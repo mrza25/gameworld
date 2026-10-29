@@ -85,6 +85,20 @@ Route::prefix('auth')->group(function () {
 
 /*
 |--------------------------------------------------------------------------
+| Payment Gateway Callbacks
+|--------------------------------------------------------------------------
+|
+| The gateway redirects the customer's browser here without an API token.
+| Each payment is authenticated by verifying its transaction instead.
+|
+*/
+Route::middleware('throttle:financial')->group(function () {
+    Route::get('/wallet/callback', [WalletController::class, 'callback'])->name('api.wallet.callback');
+    Route::get('/orders/payment/callback', [OrderController::class, 'callback'])->name('api.orders.callback');
+});
+
+/*
+|--------------------------------------------------------------------------
 | Protected Customer Routes
 |--------------------------------------------------------------------------
 */
@@ -93,7 +107,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/wallet', [WalletController::class, 'index'])->name('api.wallet.index');
     Route::get('/wallet/transactions', [WalletController::class, 'transactions'])->name('api.wallet.transactions');
     Route::post('/wallet/charge', [WalletController::class, 'charge'])->middleware('throttle:financial')->name('api.wallet.charge');
-    Route::get('/wallet/callback', [WalletController::class, 'callback'])->name('api.wallet.callback');
 
     // Orders & Checkout
     Route::get('/orders', [OrderController::class, 'index'])->name('api.orders.index');
@@ -101,7 +114,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/orders/checkout', [OrderController::class, 'checkout'])->middleware('throttle:financial')->name('api.orders.checkout');
     Route::post('/orders', [OrderController::class, 'checkout'])->middleware('throttle:financial');
     Route::post('/checkout', [OrderController::class, 'checkout'])->middleware('throttle:financial');
-    Route::get('/orders/payment/callback', [OrderController::class, 'callback'])->name('api.orders.callback');
 
     // Game Ratings & Reviews
     Route::post('/games/{id}/rate', [CommonController::class, 'rateGame'])->name('api.games.rate');
