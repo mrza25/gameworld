@@ -121,14 +121,10 @@ class ProductController extends Controller
      */
     public function consoles(): JsonResponse
     {
-        $consoles = Cache::remember('catalog:consoles', now()->addHour(), fn () => Platform::orderBy('id')
+        $consoles = Cache::remember(Platform::CONSOLES_CACHE_KEY, now()->addHour(), fn () => Platform::query()
+            ->ordered()
             ->get()
-            ->map(fn (Platform $platform) => [
-                'id' => $platform->id,
-                'label' => $platform->name,
-                'value' => $platform->slug,
-                'short' => $platform->name,
-            ])
+            ->map(fn (Platform $platform) => $platform->toConsoleArray())
             ->all());
 
         return response()->json([

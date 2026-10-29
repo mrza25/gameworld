@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AdminConsoleController;
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CommonController;
@@ -158,6 +159,12 @@ Route::middleware(['auth:sanctum', AdminMiddleware::class])
         Route::match(['put', 'patch', 'post'], '/games/{id}', [AdminController::class, 'updateGame'])->name('api.admin.games.update');
         Route::post('/games/{id}/screenshots', [AdminController::class, 'uploadScreenshots'])->name('api.admin.games.screenshots');
         Route::delete('/games/{id}', [AdminController::class, 'deleteGame'])->name('api.admin.games.delete');
+
+        // Consoles Management
+        Route::get('/consoles', [AdminConsoleController::class, 'index'])->name('api.admin.consoles.index');
+        Route::post('/consoles', [AdminConsoleController::class, 'store'])->name('api.admin.consoles.store');
+        Route::match(['put', 'patch', 'post'], '/consoles/{platform}', [AdminConsoleController::class, 'update'])->name('api.admin.consoles.update');
+        Route::delete('/consoles/{platform}', [AdminConsoleController::class, 'destroy'])->name('api.admin.consoles.delete');
 
         // Financial & Banners
         Route::get('/transactions', [AdminController::class, 'transactions'])->name('api.admin.transactions');
