@@ -66,8 +66,21 @@ class Order extends Model
         return $this->hasMany(OrderItem::class);
     }
 
+    /**
+     * Whether a customer may still cancel this order: nothing has started installing yet.
+     */
+    public function isCancellableByCustomer(): bool
+    {
+        return $this->status === OrderStatus::Pending
+            && $this->items->every(fn ($item) => $item->installation_status === 'pending');
+    }
+
     public function syncStatusFromItems(): void
     {
+        if ($this->status === OrderStatus::Cancelled) {
+            return;
+        }
+
         $items = $this->relationLoaded('items') ? $this->items : $this->items()->get();
 
         if ($items->isEmpty()) {
@@ -99,6 +112,7 @@ class Order extends Model
             'pending' => 'در حال بررسی',
             'processing' => 'در حال پردازش',
             'completed' => 'تکمیل شده',
+            'cancelled' => 'لغو شده',
         ];
 
         $paymentMap = [
@@ -106,6 +120,8 @@ class Order extends Model
             'partial' => 'پرداخت ناقص',
             'paid' => 'پرداخت شده',
             'failed' => 'ناموفق',
+            'refunded' => 'مسترد شده',
+            'pending' => 'در انتظار پرداخت',
         ];
 
         $installMap = [
@@ -130,6 +146,7 @@ class Order extends Model
             'id' => $this->id,
             'orderId' => '#'.$this->id,
             'paymentMethod' => $paymentMethod,
+            'cancellable' => $this->isCancellableByCustomer(),
             'userId' => $this->user_id,
             'name' => $this->user?->name,
             'phone' => $this->user?->phonenumber,

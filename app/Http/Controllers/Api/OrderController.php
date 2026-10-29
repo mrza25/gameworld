@@ -10,6 +10,7 @@ use App\Models\Payment;
 use App\Models\Platform;
 use App\PaymentStatus;
 use App\Services\CheckoutService;
+use App\Services\OrderCancellationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -77,6 +78,33 @@ class OrderController extends Controller
 
         return response()->json([
             'ok' => true,
+            'data' => $orderData,
+            'order' => $orderData,
+        ]);
+    }
+
+    /**
+     * Cancel one of the customer's own orders before installation starts,
+     * refunding the amount to their wallet.
+     */
+    public function cancel(Request $request, int|string $id, OrderCancellationService $orderCancellationService): JsonResponse
+    {
+        $order = $request->user()->orders()->findOrFail(Order::idFromReference($id));
+
+        try {
+            $order = $orderCancellationService->cancel($order);
+        } catch (RuntimeException $e) {
+            return response()->json([
+                'ok' => false,
+                'error' => $e->getMessage(),
+            ], 422);
+        }
+
+        $orderData = $this->transformOrder($order);
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'سفارش لغو شد و مبلغ آن به کیف پول شما بازگشت.',
             'data' => $orderData,
             'order' => $orderData,
         ]);

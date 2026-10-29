@@ -12,6 +12,7 @@ use App\Models\WalletTransaction;
 use App\Notifications\OrderStatusUpdated;
 use App\OrderStatus;
 use App\PaymentStatus;
+use App\Services\OrderCancellationService;
 use App\Services\WalletService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,7 +27,8 @@ use Illuminate\Validation\ValidationException;
 class AdminController extends Controller
 {
     public function __construct(
-        private WalletService $walletService
+        private WalletService $walletService,
+        private OrderCancellationService $orderCancellationService
     ) {}
 
     /**
@@ -154,8 +156,14 @@ class AdminController extends Controller
      */
     public function updateOrder(Request $request, int|string $id): JsonResponse
     {
-        $cleanId = (int) ltrim((string) $id, '#');
-        $order = Order::with('items')->findOrFail($cleanId);
+        $order = Order::with('items')->findOrFail(Order::idFromReference($id));
+
+        if (! $request->has('status') && $request->has('statusRaw')) {
+            $request->merge(['status' => $request->input('statusRaw')]);
+        }
+        if (! $request->has('payment_status') && $request->has('paymentStatusRaw')) {
+            $request->merge(['payment_status' => $request->input('paymentStatusRaw')]);
+        }
 
         $validated = $request->validate([
             'status' => ['nullable', 'string'],
@@ -166,6 +174,12 @@ class AdminController extends Controller
             'install_statuses.*.install_status' => ['nullable', 'string'],
             'install_statuses.*.status' => ['nullable', 'string'],
         ]);
+
+        $this->ensureOrderIsNotCancelled($order);
+
+        if (! empty($validated['status']) && $this->resolveStatusKey($validated['status']) === OrderStatus::Cancelled->value) {
+            return $this->cancelOrderAsAdmin($order);
+        }
 
         $statusChanged = false;
 
@@ -220,16 +234,25 @@ class AdminController extends Controller
     /**
      * Update order operational status.
      */
-    public function updateOrderStatus(Request $request, int $id): JsonResponse
+    public function updateOrderStatus(Request $request, int|string $id): JsonResponse
     {
+        if (! $request->has('status') && $request->has('statusRaw')) {
+            $request->merge(['status' => $request->input('statusRaw')]);
+        }
+
         $validated = $request->validate([
             'status' => ['required', 'string'],
         ]);
 
-        $order = Order::findOrFail($id);
+        $order = Order::findOrFail(Order::idFromReference($id));
+        $this->ensureOrderIsNotCancelled($order);
 
         // Map Persian status strings if sent from frontend
         $statusKey = $this->resolveStatusKey($validated['status']);
+
+        if ($statusKey === OrderStatus::Cancelled->value) {
+            return $this->cancelOrderAsAdmin($order);
+        }
 
         $oldStatus = $order->status instanceof \BackedEnum ? $order->status->value : $order->status;
         $order->update(['status' => $statusKey]);
@@ -257,6 +280,7 @@ class AdminController extends Controller
         ]);
 
         $order = Order::findOrFail($id);
+        $this->ensureOrderIsNotCancelled($order);
         $paymentKey = $this->resolvePaymentStatusKey($validated['payment_status']);
 
         $order->update(['payment_status' => $paymentKey]);
@@ -278,6 +302,7 @@ class AdminController extends Controller
         ]);
 
         $order = Order::findOrFail($orderId);
+        $this->ensureOrderIsNotCancelled($order);
         $item = $order->items()->findOrFail($itemId);
 
         $installKey = $this->resolveInstallStatusKey($validated['installation_status']);
@@ -1207,6 +1232,7 @@ class AdminController extends Controller
             'pending_orders' => (int) ($statusCounts[OrderStatus::Pending->value] ?? 0),
             'processing_orders' => (int) ($statusCounts[OrderStatus::Processing->value] ?? 0),
             'completed_orders' => (int) ($statusCounts[OrderStatus::Completed->value] ?? 0),
+            'cancelled_orders' => (int) ($statusCounts[OrderStatus::Cancelled->value] ?? 0),
         ];
     }
 
@@ -1226,6 +1252,41 @@ class AdminController extends Controller
         }
     }
 
+    /**
+     * A cancelled order has been refunded, so it must never become active again.
+     */
+    private function ensureOrderIsNotCancelled(Order $order): void
+    {
+        if ($order->status === OrderStatus::Cancelled) {
+            throw ValidationException::withMessages([
+                'status' => 'سفارش لغوشده قابل تغییر نیست.',
+            ]);
+        }
+    }
+
+    private function cancelOrderAsAdmin(Order $order): JsonResponse
+    {
+        try {
+            $order = $this->orderCancellationService->cancel($order, byAdmin: true);
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'ok' => false,
+                'error' => $e->getMessage(),
+            ], 422);
+        }
+
+        $order->user?->notify(new OrderStatusUpdated($order));
+        $orderData = $order->toApiArray();
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'سفارش لغو شد و مبلغ آن به کیف پول مشتری بازگشت.',
+            'status' => $order->status->value,
+            'data' => $orderData,
+            'order' => $orderData,
+        ]);
+    }
+
     private function perPage(Request $request, int $default = 15): int
     {
         return min(max($request->integer('per_page', $default), 1), 100);
@@ -1237,6 +1298,7 @@ class AdminController extends Controller
             'در حال بررسی', 'pending' => OrderStatus::Pending->value,
             'در حال پردازش', 'تایید شده', 'processing', 'confirmed' => OrderStatus::Processing->value,
             'تکمیل شده', 'آماده تحویل', 'completed', 'ready' => OrderStatus::Completed->value,
+            'لغو شده', 'cancelled', 'canceled' => OrderStatus::Cancelled->value,
             default => throw ValidationException::withMessages([
                 'status' => 'وضعیت سفارش نامعتبر است.',
             ]),

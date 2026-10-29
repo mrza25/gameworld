@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Notifications\OrderStatusUpdated;
+use App\OrderStatus;
 use Illuminate\Http\Request;
 
 class AdminOrderController extends Controller
@@ -39,6 +40,10 @@ class AdminOrderController extends Controller
         Request $request,
         Order $order
     ) {
+        if ($order->status === OrderStatus::Cancelled) {
+            return back()->with('error', 'Cancelled orders have been refunded and cannot be changed.');
+        }
+
         $validated = $request->validate([
             'status' => [
                 'required',
@@ -70,6 +75,10 @@ class AdminOrderController extends Controller
         Request $request,
         Order $order
     ) {
+        if ($order->status === OrderStatus::Cancelled) {
+            return back()->with('error', 'Cancelled orders have been refunded and cannot be changed.');
+        }
+
         $validated = $request->validate([
             'payment_status' => [
                 'required',
@@ -91,6 +100,10 @@ class AdminOrderController extends Controller
         Request $request,
         Order $order
     ) {
+        if ($order->status === OrderStatus::Cancelled) {
+            return back()->with('error', 'Cancelled orders have been refunded and cannot be changed.');
+        }
+
         $validated = $request->validate([
             'installation_status' => [
                 'required',
