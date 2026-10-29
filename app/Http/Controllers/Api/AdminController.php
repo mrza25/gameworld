@@ -16,6 +16,7 @@ use App\Services\OrderCancellationService;
 use App\Services\WalletService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -37,15 +38,11 @@ class AdminController extends Controller
     public function dashboard(): JsonResponse
     {
         $stats = $this->buildDashboardStats();
-
-        $recentOrders = Order::with(['user', 'items.game', 'items.gameVariant.platform'])
-            ->latest()
-            ->take(6)
-            ->get()
-            ->map(fn (Order $order) => $order->toApiArray());
+        $recentOrders = $this->recentOrders();
 
         return response()->json([
             'ok' => true,
+            'data' => $this->dashboardWidgets($stats, $recentOrders),
             'stats' => $stats,
             'recentOrders' => $recentOrders,
             'total_orders' => $stats['total_orders'],
@@ -64,6 +61,7 @@ class AdminController extends Controller
 
         return response()->json([
             'ok' => true,
+            'data' => $this->dashboardWidgets($stats, $this->recentOrders()),
             'stats' => $stats,
             'total_orders' => $stats['total_orders'],
             'today_orders' => $stats['today_orders'],
@@ -77,7 +75,21 @@ class AdminController extends Controller
      */
     public function orders(Request $request): JsonResponse
     {
-        $query = Order::with(['user', 'items.game', 'items.gameVariant.platform', 'payments'])->latest();
+        $query = Order::with(['user', 'items.game', 'items.gameVariant.platform', 'payments'])->latest()->orderByDesc('id');
+
+        foreach (['statusRaw' => 'status', 'paymentStatusRaw' => 'payment_status', 'date_from' => 'from_date', 'date_to' => 'to_date'] as $alias => $field) {
+            if (! $request->filled($field) && $request->filled($alias)) {
+                $request->merge([$field => $request->input($alias)]);
+            }
+        }
+
+        if ($request->filled('payment_status')) {
+            $query->where('payment_status', $this->resolvePaymentStatusKey((string) $request->input('payment_status')));
+        }
+
+        if ($request->filled('console')) {
+            $query->forConsole((string) $request->input('console'));
+        }
 
         if ($request->filled('status')) {
             $statusKey = $this->resolveStatusKey($request->status);
@@ -100,21 +112,29 @@ class AdminController extends Controller
         }
 
         if ($request->filled('search')) {
-            $search = $request->search;
-            $cleanSearch = ltrim($search, '#');
-            $query->where(function ($q) use ($search, $cleanSearch) {
-                if (is_numeric($cleanSearch)) {
-                    $q->where('id', (int) $cleanSearch);
+            $search = (string) $request->search;
+            $orderId = preg_match('/^(#|ORD-)?\d+$/i', trim($search)) ? Order::idFromReference($search) : null;
+            $query->where(function ($q) use ($search, $orderId) {
+                if ($orderId !== null) {
+                    $q->where('id', $orderId);
                 }
                 $q->orWhereHas('user', function ($uq) use ($search) {
                     $uq->where('name', 'like', "%{$search}%")
-                        ->orWhere('phonenumber', 'like', "%{$search}%");
+                        ->orWhere('phonenumber', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%");
                 });
             });
         }
 
         $orders = $query->paginate($this->perPage($request));
-        $orders->getCollection()->transform(fn (Order $order) => $order->toApiArray());
+        $orders->getCollection()->transform(fn (Order $order) => $order->toApiArray() + [
+            'user' => $order->user ? [
+                'id' => $order->user->id,
+                'name' => $order->user->name,
+                'phone' => $order->user->phonenumber,
+                'email' => $order->user->email,
+            ] : null,
+        ]);
 
         $paginatorArray = $orders->toArray();
         $meta = [
@@ -510,6 +530,10 @@ class AdminController extends Controller
 
         if ($request->filled('genre')) {
             $query->where('genre', $request->genre);
+        }
+
+        if (! $request->filled('status') && $request->filled('is_available')) {
+            $request->merge(['status' => $request->input('is_available')]);
         }
 
         if ($request->filled('status')) {
@@ -1282,6 +1306,58 @@ class AdminController extends Controller
         } elseif ($difference < 0) {
             $this->walletService->debit($user, abs($difference), 'admin-adjustment', 'Balance adjusted by admin');
         }
+    }
+
+    /**
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function recentOrders(): Collection
+    {
+        return Order::with(['user', 'items.game', 'items.gameVariant.platform', 'payments'])
+            ->latest()
+            ->orderByDesc('id')
+            ->take(6)
+            ->get()
+            ->map(fn (Order $order) => $order->toApiArray());
+    }
+
+    /**
+     * Dashboard widgets in the shape the admin panel expects.
+     *
+     * @param  array<string, int>  $stats
+     * @param  Collection<int, array<string, mixed>>  $recentOrders
+     * @return array<string, mixed>
+     */
+    private function dashboardWidgets(array $stats, Collection $recentOrders): array
+    {
+        $recentUsers = User::with('wallet')
+            ->latest()
+            ->orderByDesc('id')
+            ->take(5)
+            ->get()
+            ->map(fn (User $user) => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'phone' => $user->phonenumber,
+                'email' => $user->email,
+                'role' => $user->is_admin ? 'admin' : 'user',
+                'wallet_balance' => (float) ($user->wallet?->balance ?? 0),
+                'created_at' => $user->created_at?->toIso8601String(),
+            ]);
+
+        return [
+            'totalUsers' => $stats['total_users'],
+            'totalGames' => $stats['total_games'],
+            'totalOrders' => $stats['total_orders'],
+            'todayOrders' => $stats['today_orders'],
+            'totalRevenue' => (float) Order::where('payment_status', PaymentStatus::Paid)->sum('total'),
+            'pendingOrders' => $stats['pending_orders'],
+            'processingOrders' => $stats['processing_orders'],
+            'completedOrders' => $stats['completed_orders'],
+            'cancelledOrders' => $stats['cancelled_orders'],
+            'recentUsers' => $recentUsers,
+            'recentOrders' => $recentOrders,
+        ];
     }
 
     /**

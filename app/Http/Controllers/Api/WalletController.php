@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Helpers\Jalali;
 use App\Http\Controllers\Controller;
 use App\Models\Payment;
+use App\Models\WalletTransaction;
 use App\PaymentStatus;
 use App\Services\CheckoutService;
 use App\Services\WalletService;
@@ -27,19 +27,9 @@ class WalletController extends Controller
         $wallet = $this->walletService->getOrCreateWallet($request->user());
         $balance = (float) $wallet->balance;
 
-        $transactions = $wallet->transactions()
-            ->latest()
-            ->get()
-            ->map(fn ($t) => [
-                'id' => $t->id,
-                'type' => $t->type,
-                'amount' => (float) $t->amount,
-                'balanceAfter' => (float) $t->balance_after,
-                'reference' => $t->reference,
-                'description' => $t->description,
-                'date' => Jalali::fromDateTime($t->created_at, 'Y/m/d H:i'),
-                'created_at' => $t->created_at,
-            ]);
+        $transactions = WalletTransaction::toApiCollection(
+            $wallet->transactions()->latest()->orderByDesc('id')->get()
+        );
 
         return response()->json([
             'ok' => true,
@@ -53,26 +43,21 @@ class WalletController extends Controller
     }
 
     /**
-     * Get paginated wallet transactions.
+     * Get paginated wallet transactions, optionally filtered by `type`:
+     * credit | debit | deposit | payment | refund | adjustment.
      */
     public function transactions(Request $request): JsonResponse
     {
         $wallet = $this->walletService->getOrCreateWallet($request->user());
 
-        $transactions = $wallet->transactions()
-            ->latest()
-            ->paginate(min(max($request->integer('per_page', 15), 1), 100));
+        $query = $wallet->transactions()->latest()->orderByDesc('id');
 
-        $transactions->getCollection()->transform(fn ($t) => [
-            'id' => $t->id,
-            'type' => $t->type,
-            'amount' => (float) $t->amount,
-            'balanceAfter' => (float) $t->balance_after,
-            'reference' => $t->reference,
-            'description' => $t->description,
-            'date' => Jalali::fromDateTime($t->created_at, 'Y/m/d H:i'),
-            'created_at' => $t->created_at,
-        ]);
+        if ($request->filled('type')) {
+            $query->ofKind((string) $request->input('type'));
+        }
+
+        $transactions = $query->paginate(min(max($request->integer('per_page', 15), 1), 100))->withQueryString();
+        $transactions->setCollection(WalletTransaction::toApiCollection($transactions->getCollection()));
 
         return response()->json([
             'ok' => true,
