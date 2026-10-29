@@ -12,7 +12,9 @@ use Illuminate\Support\Facades\Cache;
 class ProductController extends Controller
 {
     /**
-     * List all available products/games with their platform variants.
+     * List available games with their platform variants.
+     *
+     * Returns the full list, or a page of it when `page` or `per_page` is given.
      */
     public function index(Request $request): JsonResponse
     {
@@ -50,24 +52,64 @@ class ProductController extends Controller
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('title', 'like', "%{$search}%")
+                    ->orWhere('slug', 'like', "%{$search}%")
                     ->orWhere('genre', 'like', "%{$search}%")
                     ->orWhere('developer', 'like', "%{$search}%");
             });
         }
 
-        if (in_array($request->input('sort'), ['popular', 'sales'], true)) {
-            $query->orderByDesc('sales');
-        } else {
-            $query->latest();
+        if ($request->filled('console')) {
+            $consoleSlugs = array_filter(array_map('trim', explode(',', (string) $request->input('console'))));
+
+            $query->whereHas('variants', fn ($variants) => $variants
+                ->where('is_available', true)
+                ->whereHas('platform', fn ($platform) => $platform->whereIn('slug', $consoleSlugs)));
         }
 
-        $games = $query->get();
+        if ($request->filled('brand')) {
+            $query->where('developer', $request->input('brand'));
+        }
 
-        $data = $games->map(fn (Game $game) => $this->transformGame($game));
+        $minRating = (float) $request->input('min_rating', 0);
+        if ($minRating > 0) {
+            // Compared in tenths as an integer: PDO binds floats as strings, which SQLite never treats as >= a number.
+            $query->whereRaw('(select avg(rating) from game_ratings where game_ratings.game_id = games.id) * 10 >= ?', [(int) round($minRating * 10)]);
+        }
+
+        match ($request->input('sort')) {
+            'popular', 'sales' => $query->orderByDesc('sales'),
+            'rating' => $query->orderByDesc('ratings_avg_rating')->orderByDesc('ratings_count'),
+            'size' => $query->orderBy('size'),
+            default => $query->latest(),
+        };
+        $query->orderByDesc('id');
+
+        if ($request->hasAny(['page', 'per_page'])) {
+            $games = $query->paginate(min(max($request->integer('per_page', 12), 1), 48))->withQueryString();
+
+            return response()->json([
+                'ok' => true,
+                'data' => $games->getCollection()->map(fn (Game $game) => $this->transformGame($game))->values(),
+                'links' => [
+                    'first' => $games->url(1),
+                    'last' => $games->url($games->lastPage()),
+                    'prev' => $games->previousPageUrl(),
+                    'next' => $games->nextPageUrl(),
+                ],
+                'meta' => [
+                    'current_page' => $games->currentPage(),
+                    'last_page' => $games->lastPage(),
+                    'per_page' => $games->perPage(),
+                    'total' => $games->total(),
+                    'from' => $games->firstItem(),
+                    'to' => $games->lastItem(),
+                ],
+            ]);
+        }
 
         return response()->json([
             'ok' => true,
-            'data' => $data,
+            'data' => $query->get()->map(fn (Game $game) => $this->transformGame($game)),
         ]);
     }
 
