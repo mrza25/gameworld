@@ -92,6 +92,7 @@ class WalletController extends Controller
                 'gateway_url' => $callbackUrl,
                 'payment_id' => $payment->id,
                 'transaction_id' => $payment->transaction_id,
+                'authority' => $payment->transaction_id,
                 'amount' => (float) $payment->amount,
             ],
             'payment_id' => $payment->id,

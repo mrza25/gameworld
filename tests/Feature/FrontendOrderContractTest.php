@@ -152,7 +152,7 @@ class FrontendOrderContractTest extends TestCase
         $response = $this->actingAs($user)->postJson(route('api.wallet.charge'), [
             'amount' => 1000000,
             'payment_method' => 'gateway',
-        ])->assertOk()->assertJsonPath('data.method', 'gateway');
+        ])->assertOk()->assertJsonPath('data.method', 'gateway')->assertJsonPath('data.authority', Payment::firstOrFail()->transaction_id);
 
         $this->app['auth']->forgetGuards();
         $this->get($response->json('data.gateway_url'))

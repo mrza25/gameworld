@@ -127,14 +127,7 @@ class AdminController extends Controller
         }
 
         $orders = $query->paginate($this->perPage($request));
-        $orders->getCollection()->transform(fn (Order $order) => $order->toApiArray() + [
-            'user' => $order->user ? [
-                'id' => $order->user->id,
-                'name' => $order->user->name,
-                'phone' => $order->user->phonenumber,
-                'email' => $order->user->email,
-            ] : null,
-        ]);
+        $orders->getCollection()->transform(fn (Order $order) => $this->orderWithUser($order));
 
         $paginatorArray = $orders->toArray();
         $meta = [
@@ -158,11 +151,10 @@ class AdminController extends Controller
      */
     public function orderDetail(int|string $id): JsonResponse
     {
-        $cleanId = (int) ltrim((string) $id, '#');
         $order = Order::with(['user', 'items.game', 'items.gameVariant.platform', 'payments'])
-            ->findOrFail($cleanId);
+            ->findOrFail(Order::idFromReference($id));
 
-        $orderData = $order->toApiArray();
+        $orderData = $this->orderWithUser($order);
 
         return response()->json([
             'ok' => true,
@@ -1306,6 +1298,23 @@ class AdminController extends Controller
         } elseif ($difference < 0) {
             $this->walletService->debit($user, abs($difference), 'admin-adjustment', 'Balance adjusted by admin');
         }
+    }
+
+    /**
+     * Order API shape plus the customer's contact details, for admin views.
+     *
+     * @return array<string, mixed>
+     */
+    private function orderWithUser(Order $order): array
+    {
+        return $order->toApiArray() + [
+            'user' => $order->user ? [
+                'id' => $order->user->id,
+                'name' => $order->user->name,
+                'phone' => $order->user->phonenumber,
+                'email' => $order->user->email,
+            ] : null,
+        ];
     }
 
     /**

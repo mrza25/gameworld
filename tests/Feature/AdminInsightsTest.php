@@ -89,6 +89,16 @@ class AdminInsightsTest extends TestCase
             ]);
     }
 
+    public function test_admin_order_detail_includes_user(): void
+    {
+        $orderId = $this->placeWalletOrder();
+
+        $this->actingAs($this->admin)->getJson(route('api.admin.orders.show', "ORD-{$orderId}"))
+            ->assertOk()
+            ->assertJsonPath('data.id', $orderId)
+            ->assertJsonPath('data.user.email', 'ali@example.com');
+    }
+
     public function test_admin_games_list_filters_by_is_available(): void
     {
         Game::create(['title' => 'Hidden', 'slug' => 'hidden', 'genre' => 'Action', 'is_available' => false]);
