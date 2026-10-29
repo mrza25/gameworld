@@ -13,7 +13,7 @@ class ApiErrorFormatTest extends TestCase
     public function test_validation_errors_include_ok_and_error_alongside_field_errors(): void
     {
         $this->actingAs(User::factory()->create())
-            ->postJson(route('api.orders.checkout'), [])
+            ->postJson(route('api.orders.checkout'), ['method' => 'cash'])
             ->assertUnprocessable()
             ->assertJsonPath('ok', false)
             ->assertJsonStructure(['ok', 'error', 'message', 'errors']);

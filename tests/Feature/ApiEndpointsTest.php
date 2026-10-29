@@ -277,14 +277,12 @@ class ApiEndpointsTest extends TestCase
         $user->wallet()->create(['balance' => 500000]);
         $token = $user->createToken('test')->plainTextToken;
 
-        // 1. Missing method returns 422 with Persian message
+        // 1. Missing method pays from the wallet when its balance covers the total
         $res1 = $this->withToken($token)->postJson(route('api.orders.checkout'), [
             'console' => 'ps5',
             'variants' => [$variant->id],
         ]);
-        $res1->assertStatus(422)
-            ->assertJsonValidationErrors(['method'])
-            ->assertJsonFragment(['method' => ['انتخاب روش پرداخت الزامی است.']]);
+        $res1->assertCreated()->assertJsonPath('data.payment_method', 'wallet');
 
         // 2. Invalid method returns 422 with Persian message
         $res2 = $this->withToken($token)->postJson(route('api.orders.checkout'), [
@@ -296,14 +294,12 @@ class ApiEndpointsTest extends TestCase
             ->assertJsonValidationErrors(['method'])
             ->assertJsonFragment(['method' => ['روش پرداخت باید کیف پول یا درگاه بانکی باشد.']]);
 
-        // 3. Missing console returns 422 with Persian message
+        // 3. Missing console is inferred from the selected variants
         $res3 = $this->withToken($token)->postJson(route('api.orders.checkout'), [
             'method' => 'wallet',
             'variants' => [$variant->id],
         ]);
-        $res3->assertStatus(422)
-            ->assertJsonValidationErrors(['console'])
-            ->assertJsonFragment(['console' => ['انتخاب کنسول الزامی است.']]);
+        $res3->assertCreated()->assertJsonPath('data.order.console', 'ps5');
 
         // 4. Standard valid payload succeeds cleanly
         $res4 = $this->withToken($token)->postJson(route('api.orders.checkout'), [

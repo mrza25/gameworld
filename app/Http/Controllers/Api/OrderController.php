@@ -13,6 +13,7 @@ use App\Services\CheckoutService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
 class OrderController extends Controller
@@ -64,6 +65,9 @@ class OrderController extends Controller
 
     /**
      * Checkout an order with either wallet balance or payment gateway.
+     *
+     * When no console is sent it is inferred from the selected variants, and
+     * when no method is sent the wallet is used if its balance covers the total.
      */
     public function checkout(Request $request): JsonResponse
     {
@@ -87,30 +91,25 @@ class OrderController extends Controller
         }
 
         $validated = $request->validate([
-            'console' => ['required', 'string'],
+            'console' => ['nullable', 'string'],
             'console_note' => ['nullable', 'string', 'max:255'],
-            'method' => ['required', 'string', 'in:wallet,gateway'],
+            'method' => ['nullable', 'string', 'in:wallet,gateway'],
             'variants' => ['nullable', 'array', 'min:1'],
             'variants.*' => ['integer', 'exists:game_variants,id'],
             'items' => ['nullable', 'array', 'min:1'],
+            'items.*.quantity' => ['nullable', 'integer', 'min:1', 'max:1'],
             'games' => ['nullable', 'array', 'min:1'],
             'games.*' => ['nullable'],
+            'coupon_code' => ['nullable', 'string', 'max:50'],
         ], [
-            'method.required' => 'انتخاب روش پرداخت الزامی است.',
             'method.in' => 'روش پرداخت باید کیف پول یا درگاه بانکی باشد.',
-            'console.required' => 'انتخاب کنسول الزامی است.',
+            'items.*.quantity.max' => 'هر بازی فقط یک بار روی کنسول نصب می‌شود؛ تعداد باید ۱ باشد.',
         ]);
 
-        $consoleSlug = Str::slug($validated['console']);
-        $platform = Platform::where('slug', $consoleSlug)
-            ->orWhere('name', $validated['console'])
-            ->first();
-
-        if (! $platform) {
-            return response()->json([
-                'ok' => false,
-                'error' => 'کنسول انتخاب شده معتبر نیست.',
-            ], 422);
+        if (! empty($validated['coupon_code'])) {
+            throw ValidationException::withMessages([
+                'coupon_code' => 'کد تخفیف معتبر نیست.',
+            ]);
         }
 
         // Resolve variant IDs (supports variants[], items[], or games[] slugs/IDs)
@@ -145,6 +144,17 @@ class OrderController extends Controller
                     }
                 }
             }
+        }
+
+        $platform = $this->resolveCheckoutPlatform($validated['console'] ?? null, $rawVariantIds);
+
+        if (! $platform) {
+            return response()->json([
+                'ok' => false,
+                'error' => empty($validated['console'])
+                    ? 'انتخاب کنسول الزامی است؛ همهٔ بازی‌های سبد باید برای یک کنسول باشند.'
+                    : 'کنسول انتخاب شده معتبر نیست.',
+            ], 422);
         }
 
         if (! empty($gameSlugs)) {
@@ -214,6 +224,8 @@ class OrderController extends Controller
         $totalCents = $variants->sum(fn (GameVariant $v) => (int) round((float) $v->price * 100));
         $total = $totalCents / 100;
 
+        $validated['method'] ??= (float) ($request->user()->wallet?->balance ?? 0) >= $total ? 'wallet' : 'gateway';
+
         // Wallet Checkout
         if ($validated['method'] === 'wallet') {
             try {
@@ -238,7 +250,11 @@ class OrderController extends Controller
                     'order' => $orderData,
                     'data' => [
                         'method' => 'wallet',
+                        'payment_method' => 'wallet',
+                        'status' => 'paid',
                         'order_id' => $order->id,
+                        'amount' => (float) $order->total,
+                        'redirect_url' => "/my/orders/{$order->id}",
                         'message' => $message,
                         'order' => $orderData,
                     ],
@@ -276,9 +292,12 @@ class OrderController extends Controller
                 'ok' => true,
                 'data' => [
                     'method' => 'gateway',
+                    'payment_method' => 'gateway',
+                    'status' => 'pending_payment',
                     'gateway_url' => $callbackUrl,
                     'payment_id' => $payment->id,
                     'transaction_id' => $payment->transaction_id,
+                    'authority' => $payment->transaction_id,
                     'amount' => (float) $payment->amount,
                     // The order is only created after the gateway confirms payment.
                     'order_id' => null,
@@ -373,6 +392,28 @@ class OrderController extends Controller
                 'redirect_url' => $redirectUrl,
             ], 422);
         }
+    }
+
+    /**
+     * The checkout console: the one requested, or else the single console that
+     * all selected variants belong to.
+     *
+     * @param  array<int, int>  $variantIds
+     */
+    private function resolveCheckoutPlatform(?string $console, array $variantIds): ?Platform
+    {
+        if ($console !== null && $console !== '') {
+            return Platform::where('slug', Str::slug($console))
+                ->orWhere('name', $console)
+                ->first();
+        }
+
+        $platformIds = GameVariant::query()
+            ->whereIn('id', array_unique($variantIds))
+            ->distinct()
+            ->pluck('platform_id');
+
+        return $platformIds->count() === 1 ? Platform::find($platformIds->first()) : null;
     }
 
     private function transformOrder(Order $order): array
