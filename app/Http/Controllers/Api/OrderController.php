@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Contracts\PaymentGateway;
 use App\Http\Controllers\Controller;
 use App\Models\Game;
 use App\Models\GameVariant;
@@ -20,7 +21,8 @@ use RuntimeException;
 class OrderController extends Controller
 {
     public function __construct(
-        private CheckoutService $checkoutService
+        private CheckoutService $checkoutService,
+        private PaymentGateway $paymentGateway
     ) {}
 
     /**
@@ -331,6 +333,7 @@ class OrderController extends Controller
                 'payment' => $payment->id,
                 'transaction_id' => $payment->transaction_id,
             ]);
+            $gatewayUrl = $this->paymentGateway->redirectUrl($payment);
 
             $frontendUrl = config('app.frontend_url');
             $frontendSuccessUrl = "{$frontendUrl}/my/orders?payment=success";
@@ -341,7 +344,7 @@ class OrderController extends Controller
                     'method' => 'gateway',
                     'payment_method' => 'gateway',
                     'status' => 'pending_payment',
-                    'gateway_url' => $callbackUrl,
+                    'gateway_url' => $gatewayUrl,
                     'payment_id' => $payment->id,
                     'transaction_id' => $payment->transaction_id,
                     'authority' => $payment->transaction_id,
@@ -354,7 +357,7 @@ class OrderController extends Controller
                 'transaction_id' => $payment->transaction_id,
                 'amount' => (float) $payment->amount,
                 'action_url' => $callbackUrl,
-                'gateway_url' => $callbackUrl,
+                'gateway_url' => $gatewayUrl,
                 'callback_url' => $callbackUrl,
                 'frontend_redirect_url' => $frontendSuccessUrl,
                 'redirect_on_success' => '/my/orders?payment=success',
@@ -378,13 +381,15 @@ class OrderController extends Controller
      *
      * This is where the payment gateway sends the customer's browser back, so it
      * does not require an API token: the payment is authenticated by verifying
-     * its transaction with the gateway.
+     * its transaction with the gateway. `status=NOK` means the customer
+     * cancelled on the gateway page.
      */
     public function callback(Request $request)
     {
         $request->validate([
             'payment' => ['required', 'integer'],
             'transaction_id' => ['required', 'string'],
+            'status' => ['nullable', 'string'],
         ]);
 
         $payment = Payment::findOrFail($request->integer('payment'));
@@ -408,6 +413,12 @@ class OrderController extends Controller
         }
 
         try {
+            if ($this->gatewayReportedFailure($request)) {
+                $this->checkoutService->failGatewayPayment($payment, $request->string('transaction_id')->toString());
+
+                throw new RuntimeException('پرداخت توسط کاربر لغو شد.');
+            }
+
             $order = $this->checkoutService->completeGatewayCheckout(
                 $payment,
                 $request->string('transaction_id')->toString()

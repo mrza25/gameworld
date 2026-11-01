@@ -6,9 +6,19 @@ namespace App\Http\Controllers;
 
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 abstract class Controller
 {
+    /**
+     * Whether the payment gateway sent the customer back with a failure status,
+     * e.g. `status=NOK` after they cancelled on the gateway page.
+     */
+    protected function gatewayReportedFailure(Request $request): bool
+    {
+        return $request->filled('status') && strtoupper($request->string('status')->toString()) !== 'OK';
+    }
+
     /**
      * A page of results in the Laravel resource format: data stays the array of
      * rows, with pagination in links and meta.

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Contracts\PaymentGateway;
 use App\Http\Controllers\Controller;
 use App\Models\Payment;
 use App\Models\WalletTransaction;
@@ -16,7 +17,8 @@ class WalletController extends Controller
 {
     public function __construct(
         private WalletService $walletService,
-        private CheckoutService $checkoutService
+        private CheckoutService $checkoutService,
+        private PaymentGateway $paymentGateway
     ) {}
 
     /**
@@ -84,12 +86,13 @@ class WalletController extends Controller
             'payment' => $payment->id,
             'transaction_id' => $payment->transaction_id,
         ]);
+        $gatewayUrl = $this->paymentGateway->redirectUrl($payment);
 
         return response()->json([
             'ok' => true,
             'data' => [
                 'method' => 'gateway',
-                'gateway_url' => $callbackUrl,
+                'gateway_url' => $gatewayUrl,
                 'payment_id' => $payment->id,
                 'transaction_id' => $payment->transaction_id,
                 'authority' => $payment->transaction_id,
@@ -99,7 +102,7 @@ class WalletController extends Controller
             'amount' => (float) $payment->amount,
             'transaction_id' => $payment->transaction_id,
             'action_url' => $callbackUrl,
-            'gateway_url' => $callbackUrl,
+            'gateway_url' => $gatewayUrl,
             'callback_url' => $callbackUrl,
             'frontend_redirect_url' => "{$frontendUrl}/my/wallet?payment=success",
             'redirect_on_success' => '/my/wallet?payment=success',
@@ -117,13 +120,15 @@ class WalletController extends Controller
      *
      * This is where the payment gateway sends the customer's browser back, so it
      * does not require an API token: the payment is authenticated by verifying
-     * its transaction with the gateway.
+     * its transaction with the gateway. `status=NOK` means the customer
+     * cancelled on the gateway page.
      */
     public function callback(Request $request)
     {
         $request->validate([
             'payment' => ['required', 'integer'],
             'transaction_id' => ['required', 'string'],
+            'status' => ['nullable', 'string'],
         ]);
 
         $payment = Payment::findOrFail($request->integer('payment'));
@@ -144,6 +149,12 @@ class WalletController extends Controller
         }
 
         try {
+            if ($this->gatewayReportedFailure($request)) {
+                $this->checkoutService->failGatewayPayment($payment, $request->string('transaction_id')->toString());
+
+                throw new RuntimeException('پرداخت توسط کاربر لغو شد.');
+            }
+
             $this->checkoutService->completeWalletCharge(
                 $payment,
                 $request->string('transaction_id')->toString()

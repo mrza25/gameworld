@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\AdminOrderController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CheckoutController;
 use App\Http\Controllers\ConsoleController;
+use App\Http\Controllers\FakeGatewayController;
 use App\Http\Controllers\GameController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OrderController;
@@ -77,6 +78,26 @@ Route::get('/games/{game}', [
     GameController::class,
     'show',
 ])->name('games.show');
+
+/*
+|--------------------------------------------------------------------------
+| Sandbox Payment Gateway
+|--------------------------------------------------------------------------
+|
+| Stands in for the bank's payment page while the fake gateway is bound.
+| Public: the customer arrives from the frontend without a web session.
+|
+*/
+
+Route::get('/payments/fake-gateway/{payment}', [
+    FakeGatewayController::class,
+    'show',
+])->name('payments.fake-gateway.show');
+
+Route::post('/payments/fake-gateway/{payment}', [
+    FakeGatewayController::class,
+    'submit',
+])->middleware('throttle:financial')->name('payments.fake-gateway.submit');
 
 /*
 |--------------------------------------------------------------------------

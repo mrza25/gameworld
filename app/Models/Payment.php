@@ -39,6 +39,14 @@ class Payment extends Model
         return is_string($this->transaction_id) && hash_equals($this->transaction_id, $transactionId);
     }
 
+    /**
+     * Whether this payment tops up the wallet rather than paying for games.
+     */
+    public function isWalletCharge(): bool
+    {
+        return $this->order_id === null && empty($this->metadata['items']);
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

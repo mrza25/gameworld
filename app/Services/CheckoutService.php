@@ -184,8 +184,7 @@ class CheckoutService
 
             if (
                 $payment->method !== PaymentMethod::Gateway ||
-                $payment->order_id !== null ||
-                ! empty($payment->metadata['items'])
+                ! $payment->isWalletCharge()
             ) {
                 throw new RuntimeException(
                     'This payment is not a valid wallet charge.'
@@ -217,6 +216,32 @@ class CheckoutService
             );
 
             return $payment->fresh();
+        });
+    }
+
+    /**
+     * Mark a pending gateway payment as failed after the gateway reports that
+     * the customer cancelled it. A payment whose transaction id does not
+     * match, or that is no longer pending, is left untouched.
+     */
+    public function failGatewayPayment(
+        Payment $payment,
+        string $transactionId
+    ): void {
+        DB::transaction(function () use (
+            $payment,
+            $transactionId
+        ) {
+            $payment = Payment::query()
+                ->lockForUpdate()
+                ->findOrFail($payment->id);
+
+            if (
+                $payment->status === PaymentStatus::Pending &&
+                $payment->matchesTransaction($transactionId)
+            ) {
+                $this->paymentService->markAsFailed($payment);
+            }
         });
     }
 

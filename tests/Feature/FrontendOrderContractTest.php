@@ -102,16 +102,17 @@ class FrontendOrderContractTest extends TestCase
         $response->assertJsonPath('data.method', 'gateway')
             ->assertJsonPath('data.order_id', null)
             ->assertJsonPath('data.payment_id', Payment::firstOrFail()->id);
-        $this->assertStringContainsString('/api/orders/payment/callback', $response->json('data.gateway_url'));
+        $this->assertStringContainsString('/payments/fake-gateway/', $response->json('data.gateway_url'));
+        $this->assertStringContainsString('/api/orders/payment/callback', $response->json('callback_url'));
     }
 
     public function test_browser_returning_from_gateway_without_token_completes_the_order(): void
     {
         $user = User::factory()->create();
-        $gatewayUrl = $this->checkout($user, 'gateway')->json('data.gateway_url');
+        $callbackUrl = $this->checkout($user, 'gateway')->json('callback_url');
 
         $this->app['auth']->forgetGuards();
-        $response = $this->get($gatewayUrl);
+        $response = $this->get($callbackUrl);
 
         $order = Order::where('user_id', $user->id)->firstOrFail();
         $response->assertRedirect("http://frontend.test/my/orders?payment=success&order_id={$order->id}");
@@ -132,9 +133,9 @@ class FrontendOrderContractTest extends TestCase
     public function test_public_callback_does_not_leak_paid_order_without_matching_transaction_id(): void
     {
         $user = User::factory()->create();
-        $gatewayUrl = $this->checkout($user, 'gateway')->json('data.gateway_url');
+        $callbackUrl = $this->checkout($user, 'gateway')->json('callback_url');
         $paymentId = Payment::firstOrFail()->id;
-        $this->get($gatewayUrl);
+        $this->get($callbackUrl);
 
         $this->app['auth']->forgetGuards();
         $this->getJson(route('api.orders.callback', ['payment' => $paymentId, 'transaction_id' => 'FAKE-GUESS']))
@@ -155,7 +156,7 @@ class FrontendOrderContractTest extends TestCase
         ])->assertOk()->assertJsonPath('data.method', 'gateway')->assertJsonPath('data.authority', Payment::firstOrFail()->transaction_id);
 
         $this->app['auth']->forgetGuards();
-        $this->get($response->json('data.gateway_url'))
+        $this->get($response->json('callback_url'))
             ->assertRedirect('http://frontend.test/my/wallet?payment=success&balance=1000000');
 
         $this->assertEquals(1000000, (float) $user->wallet()->value('balance'));
