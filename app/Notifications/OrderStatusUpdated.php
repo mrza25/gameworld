@@ -3,14 +3,11 @@
 namespace App\Notifications;
 
 use App\Models\Order;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Notifications\Notification;
+use App\OrderStatus;
+use App\PaymentStatus;
 
-class OrderStatusUpdated extends Notification implements ShouldQueue
+class OrderStatusUpdated extends UserNotification
 {
-    use Queueable;
-
     /**
      * The status at the moment of the change. Captured here because the
      * queued order model is re-fetched (with its latest status) when handled.
@@ -21,26 +18,20 @@ class OrderStatusUpdated extends Notification implements ShouldQueue
         public Order $order
     ) {
         $this->status = $order->status->value;
-        $this->afterCommit();
-    }
 
-    /**
-     * Get the notification's delivery channels.
-     */
-    public function via(object $notifiable): array
-    {
-        return ['database'];
-    }
+        [$title, $message] = match ($order->status) {
+            OrderStatus::Pending => ["سفارش #{$order->id} در حال بررسی است", 'سفارش شما در صف بررسی قرار گرفت.'],
+            OrderStatus::Processing => ["سفارش #{$order->id} در حال پردازش است", 'نصب بازی‌های سفارش شما شروع شده است.'],
+            OrderStatus::Completed => ["سفارش #{$order->id} تکمیل شد", 'همه‌ی بازی‌های سفارش شما نصب شد.'],
+            OrderStatus::Cancelled => ["سفارش #{$order->id} لغو شد", $order->payment_status === PaymentStatus::Refunded
+                ? 'مبلغ '.self::toman($order->total).' به کیف پول شما برگشت.'
+                : 'این سفارش لغو شد.'],
+        };
 
-    /**
-     * Get the array representation of the notification.
-     */
-    public function toArray(object $notifiable): array
-    {
-        return [
-            'order_id' => $this->order->id,
+        $this->compose('order_status', $title, $message, "/my/orders/{$order->id}", [
+            'order_id' => $order->id,
             'status' => $this->status,
-            'message' => "Order #{$this->order->id} is now {$this->status}.",
-        ];
+            'payment_status' => $order->payment_status->value,
+        ]);
     }
 }

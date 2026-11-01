@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Order;
+use App\Notifications\OrderStatusUpdated;
 use App\OrderStatus;
 use App\PaymentStatus;
 use Illuminate\Support\Facades\DB;
@@ -54,6 +55,8 @@ class OrderCancellationService
 
             $order->status = OrderStatus::Cancelled;
             $order->save();
+
+            $order->user?->notify(new OrderStatusUpdated($order));
 
             return $order->fresh(['items.game', 'items.gameVariant.platform', 'payments', 'user']);
         });

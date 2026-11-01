@@ -53,13 +53,14 @@ class CommonController extends Controller
         $notifications = $request->user()
             ->notifications()
             ->latest()
-            ->paginate(min(max($request->integer('per_page', 20), 1), 100));
+            ->paginate(min(max($request->integer('per_page', 20), 1), 100))
+            ->withQueryString();
 
         return response()->json([
             'ok' => true,
             'unread_count' => $request->user()->unreadNotifications()->count(),
             'data' => $notifications,
-        ]);
+        ] + $this->paginationDetails($notifications));
     }
 
     /**

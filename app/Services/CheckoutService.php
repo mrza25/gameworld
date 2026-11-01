@@ -7,6 +7,9 @@ use App\Models\GameVariant;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\User;
+use App\Notifications\GatewayPaymentFailed;
+use App\Notifications\OrderPlaced;
+use App\Notifications\WalletCharged;
 use App\PaymentMethod;
 use App\PaymentStatus;
 use Illuminate\Support\Facades\DB;
@@ -77,6 +80,8 @@ class CheckoutService
             $payment->update([
                 'order_id' => $order->id,
             ]);
+
+            $user->notify(new OrderPlaced($order));
 
             return $order->fresh();
         });
@@ -208,12 +213,14 @@ class CheckoutService
                 'paid_at' => now(),
             ]);
 
-            $this->walletService->credit(
+            $wallet = $this->walletService->credit(
                 $payment->user,
                 (float) $payment->amount,
                 'payment-'.$payment->id,
                 'Wallet charged successfully'
             );
+
+            $payment->user->notify(new WalletCharged($payment, (float) $wallet->balance));
 
             return $payment->fresh();
         });
@@ -241,6 +248,7 @@ class CheckoutService
                 $payment->matchesTransaction($transactionId)
             ) {
                 $this->paymentService->markAsFailed($payment);
+                $payment->user->notify(new GatewayPaymentFailed($payment));
             }
         });
     }
@@ -342,6 +350,8 @@ class CheckoutService
             $payment->update([
                 'order_id' => $order->id,
             ]);
+
+            $payment->user->notify(new OrderPlaced($order));
 
             return $order->fresh();
         });

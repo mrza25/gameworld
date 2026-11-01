@@ -64,7 +64,7 @@ class WalletController extends Controller
         return response()->json([
             'ok' => true,
             'data' => $transactions,
-        ]);
+        ] + $this->paginationDetails($transactions));
     }
 
     /**

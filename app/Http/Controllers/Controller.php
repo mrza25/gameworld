@@ -30,6 +30,18 @@ abstract class Controller
         return response()->json([
             'ok' => true,
             'data' => collect($rows)->values(),
+        ] + $this->paginationDetails($paginator));
+    }
+
+    /**
+     * The `links` and `meta` blocks every paginated endpoint returns at the
+     * top level, whatever shape its `data` has.
+     *
+     * @return array{links: array<string, ?string>, meta: array<string, ?int>}
+     */
+    protected function paginationDetails(LengthAwarePaginator $paginator): array
+    {
+        return [
             'links' => [
                 'first' => $paginator->url(1),
                 'last' => $paginator->url($paginator->lastPage()),
@@ -44,6 +56,6 @@ abstract class Controller
                 'from' => $paginator->firstItem(),
                 'to' => $paginator->lastItem(),
             ],
-        ]);
+        ];
     }
 }

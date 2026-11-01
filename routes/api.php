@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AdminConsoleController;
 use App\Http\Controllers\Api\AdminController;
+use App\Http\Controllers\Api\AdminNotificationController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CommonController;
 use App\Http\Controllers\Api\OrderController;
@@ -79,6 +80,8 @@ Route::prefix('auth')->group(function () {
 
         // Customer Profile
         Route::patch('/profile', [AuthController::class, 'updateProfile'])->name('api.auth.profile');
+        Route::post('/phone/otp', [AuthController::class, 'sendPhoneChangeOtp'])->middleware('throttle:auth')->name('api.auth.phone.otp');
+        Route::post('/phone/verify', [AuthController::class, 'updatePhone'])->middleware('throttle:auth')->name('api.auth.phone.verify');
         Route::post('/profile/avatar', [AuthController::class, 'uploadAvatar'])->name('api.auth.avatar');
         Route::patch('/password', [AuthController::class, 'changePassword'])->name('api.auth.password');
     });
@@ -150,6 +153,7 @@ Route::middleware(['auth:sanctum', AdminMiddleware::class])
         // Users Management
         Route::get('/users', [AdminController::class, 'users'])->name('api.admin.users');
         Route::post('/users', [AdminController::class, 'storeUser'])->name('api.admin.users.store');
+        Route::get('/users/{id}', [AdminController::class, 'userDetail'])->name('api.admin.users.show');
         Route::patch('/users/{id}', [AdminController::class, 'updateUser'])->name('api.admin.users.update');
         Route::delete('/users/{id}', [AdminController::class, 'deleteUser'])->name('api.admin.users.delete');
 
@@ -166,6 +170,10 @@ Route::middleware(['auth:sanctum', AdminMiddleware::class])
         Route::post('/consoles', [AdminConsoleController::class, 'store'])->name('api.admin.consoles.store');
         Route::match(['put', 'patch', 'post'], '/consoles/{platform}', [AdminConsoleController::class, 'update'])->name('api.admin.consoles.update');
         Route::delete('/consoles/{platform}', [AdminConsoleController::class, 'destroy'])->name('api.admin.consoles.delete');
+
+        // Announcements
+        Route::get('/notifications', [AdminNotificationController::class, 'index'])->name('api.admin.notifications.index');
+        Route::post('/notifications', [AdminNotificationController::class, 'store'])->name('api.admin.notifications.store');
 
         // Financial & Banners
         Route::get('/transactions', [AdminController::class, 'transactions'])->name('api.admin.transactions');

@@ -47,7 +47,7 @@ class AuthController extends Controller
             'phone' => ['nullable', 'string', 'max:20'],
             'phonenumber' => ['nullable', 'string', 'max:20'],
             'email' => ['nullable', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:6'],
+            'password' => ['required', 'string', 'min:8'],
             'code' => ['nullable', 'string'],
         ]);
 
@@ -282,7 +282,7 @@ class AuthController extends Controller
         $validated = $request->validate([
             'phone' => ['required', 'string'],
             'code' => ['required', 'string'],
-            'password' => ['required', 'string', 'min:6'],
+            'password' => ['required', 'string', 'min:8'],
         ]);
 
         $phone = $this->normalizePhone($validated['phone']);
@@ -337,16 +337,12 @@ class AuthController extends Controller
             $updates['name'] = trim($validated['name']);
         }
 
-        if (! empty($validated['phone'])) {
-            $phone = $this->normalizePhone($validated['phone']);
-            if ($phone !== $user->phonenumber) {
-                if (User::where('phonenumber', $phone)->where('id', '!=', $user->id)->exists()) {
-                    throw ValidationException::withMessages([
-                        'phone' => 'این شماره موبایل توسط کاربر دیگری استفاده شده است.',
-                    ]);
-                }
-                $updates['phonenumber'] = $phone;
-            }
+        // The phone number only changes through the OTP flow (sendPhoneChangeOtp
+        // then updatePhone). Sending the current number back unchanged is fine.
+        if (! empty($validated['phone']) && $this->normalizePhone($validated['phone']) !== $user->phonenumber) {
+            throw ValidationException::withMessages([
+                'phone' => 'برای تغییر شماره موبایل باید کدی را که به شماره‌ی جدید پیامک می‌شود تأیید کنید.',
+            ]);
         }
 
         if (! empty($updates)) {
@@ -356,6 +352,64 @@ class AuthController extends Controller
         return response()->json([
             'ok' => true,
             'message' => 'پروفایل با موفقیت به‌روزرسانی شد.',
+            'user' => $this->transformUser($user->fresh()),
+        ]);
+    }
+
+    /**
+     * Step 1 of changing the phone number: text a code to the new number.
+     */
+    public function sendPhoneChangeOtp(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'phone' => ['required', 'string', 'max:20'],
+        ]);
+
+        $user = $request->user();
+        $phone = $this->newPhoneFor($user, $validated['phone']);
+        $scope = $this->phoneChangeOtpScope($user);
+
+        $code = (string) random_int(10000, 99999);
+        Cache::put($this->otpCacheKey('otp', $phone, $scope), $code, now()->addMinutes(2));
+        Cache::forget($this->otpCacheKey('otp-attempts', $phone, $scope));
+
+        SendOtpSms::dispatch($phone, $code);
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'کد تأیید به شماره‌ی جدید ارسال شد.',
+            'expires_in' => 120,
+            'code' => $this->exposesDebugOtp() ? $code : null,
+            'debug_code' => $this->exposesDebugOtp() ? $code : null,
+        ]);
+    }
+
+    /**
+     * Step 2 of changing the phone number: save it once the code is confirmed.
+     */
+    public function updatePhone(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'phone' => ['required', 'string', 'max:20'],
+            'code' => ['required', 'string'],
+        ]);
+
+        $user = $request->user();
+        $phone = $this->newPhoneFor($user, $validated['phone']);
+        $scope = $this->phoneChangeOtpScope($user);
+
+        if (! $this->isOtpValid($phone, trim($this->normalizeDigits($validated['code'])), $scope)) {
+            throw ValidationException::withMessages([
+                'code' => 'کد تأیید نامعتبر یا منقضی شده است.',
+            ]);
+        }
+
+        Cache::forget($this->otpCacheKey('otp', $phone, $scope));
+        $user->update(['phonenumber' => $phone]);
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'شماره موبایل با موفقیت تغییر کرد.',
             'user' => $this->transformUser($user->fresh()),
         ]);
     }
@@ -391,7 +445,7 @@ class AuthController extends Controller
 
         $validated = $request->validate([
             'current_password' => ['required', 'string'],
-            'password' => ['required', 'string', 'min:6'],
+            'password' => ['required', 'string', 'min:8'],
         ]);
 
         if (! Hash::check($validated['current_password'], $user->password)) {
@@ -415,32 +469,81 @@ class AuthController extends Controller
      * Validate an OTP code. After too many wrong guesses the code is burned
      * so a 5-digit code cannot be brute-forced within its lifetime.
      */
-    private function isOtpValid(string $phone, string $code): bool
+    private function isOtpValid(string $phone, string $code, ?string $scope = null): bool
     {
         // Fixed bypass codes are only honoured on local/testing environments.
         if ($this->exposesDebugOtp() && in_array($code, ['11111', '12345'], true)) {
             return true;
         }
 
+        $codeKey = $this->otpCacheKey('otp', $phone, $scope);
+        $attemptsKey = $this->otpCacheKey('otp-attempts', $phone, $scope);
+
         $cache = Cache::store();
-        $cached = $cache->get('otp:'.$phone);
+        $cached = $cache->get($codeKey);
 
         if (is_string($cached) && hash_equals($cached, $code)) {
-            $cache->forget('otp-attempts:'.$phone);
+            $cache->forget($attemptsKey);
 
             return true;
         }
 
         if ($cached !== null) {
-            $cache->add('otp-attempts:'.$phone, 0, now()->addMinutes(2));
+            $cache->add($attemptsKey, 0, now()->addMinutes(2));
 
-            if ($cache->increment('otp-attempts:'.$phone) >= 5) {
-                $cache->forget('otp:'.$phone);
-                $cache->forget('otp-attempts:'.$phone);
+            if ($cache->increment($attemptsKey) >= 5) {
+                $cache->forget($codeKey);
+                $cache->forget($attemptsKey);
             }
         }
 
         return false;
+    }
+
+    /**
+     * Cache key for an OTP code or its attempt counter. Login codes keep the
+     * plain `otp:{phone}` key; scoped codes (such as a phone change) are kept
+     * apart so a code sent for one purpose cannot be used for another.
+     */
+    private function otpCacheKey(string $prefix, string $phone, ?string $scope = null): string
+    {
+        return $prefix.':'.($scope !== null ? $scope.':' : '').$phone;
+    }
+
+    /**
+     * A phone change code only works for the account that requested it.
+     */
+    private function phoneChangeOtpScope(User $user): string
+    {
+        return 'change-phone:'.$user->id;
+    }
+
+    /**
+     * Normalize a requested new phone number and make sure it can be used.
+     */
+    private function newPhoneFor(User $user, string $input): string
+    {
+        $phone = $this->normalizePhone($input);
+
+        if (strlen($phone) < 10) {
+            throw ValidationException::withMessages([
+                'phone' => 'شماره موبایل معتبر نیست.',
+            ]);
+        }
+
+        if ($phone === $user->phonenumber) {
+            throw ValidationException::withMessages([
+                'phone' => 'این شماره همین حالا شماره‌ی حساب شماست.',
+            ]);
+        }
+
+        if (User::where('phonenumber', $phone)->exists()) {
+            throw ValidationException::withMessages([
+                'phone' => 'این شماره موبایل توسط کاربر دیگری استفاده شده است.',
+            ]);
+        }
+
+        return $phone;
     }
 
     private function exposesDebugOtp(): bool

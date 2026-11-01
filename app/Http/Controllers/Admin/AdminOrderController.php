@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Notifications\InstallationStatusUpdated;
 use App\Notifications\OrderStatusUpdated;
+use App\Notifications\PaymentStatusUpdated;
 use App\OrderStatus;
 use Illuminate\Http\Request;
 
@@ -86,9 +88,17 @@ class AdminOrderController extends Controller
             ],
         ]);
 
+        $oldPaymentStatus = $order->payment_status;
+
         $order->update([
             'payment_status' => $validated['payment_status'],
         ]);
+
+        if ($order->payment_status !== $oldPaymentStatus) {
+            $order->user->notify(
+                new PaymentStatusUpdated($order)
+            );
+        }
 
         return back()->with(
             'success',
@@ -115,6 +125,7 @@ class AdminOrderController extends Controller
             ->findOrFail($request->item_id);
 
         $oldOrderStatus = $order->status->value;
+        $oldInstallationStatus = $item->installation_status;
 
         $item->update([
             'installation_status' => $validated['installation_status'],
@@ -122,6 +133,12 @@ class AdminOrderController extends Controller
                 ? now()
                 : null,
         ]);
+
+        if ($item->installation_status !== $oldInstallationStatus) {
+            $order->user->notify(
+                new InstallationStatusUpdated($item->load('game'))
+            );
+        }
 
         $order->syncStatusFromItems();
 

@@ -9,7 +9,10 @@ use App\Models\OrderItem;
 use App\Models\Platform;
 use App\Models\User;
 use App\Models\WalletTransaction;
+use App\Notifications\InstallationStatusUpdated;
 use App\Notifications\OrderStatusUpdated;
+use App\Notifications\PaymentStatusUpdated;
+use App\Notifications\WalletBalanceAdjusted;
 use App\OrderStatus;
 use App\PaymentStatus;
 use App\Services\OrderCancellationService;
@@ -91,6 +94,10 @@ class AdminController extends Controller
             $query->forConsole((string) $request->input('console'));
         }
 
+        if ($request->filled('user_id')) {
+            $query->where('user_id', $request->integer('user_id'));
+        }
+
         if ($request->filled('status')) {
             $statusKey = $this->resolveStatusKey($request->status);
             $query->where('status', $statusKey);
@@ -130,20 +137,14 @@ class AdminController extends Controller
         $orders->getCollection()->transform(fn (Order $order) => $this->orderWithUser($order));
 
         $paginatorArray = $orders->toArray();
-        $meta = [
-            'current_page' => $orders->currentPage(),
-            'last_page' => $orders->lastPage(),
-            'per_page' => $orders->perPage(),
-            'total' => $orders->total(),
-        ];
-        $paginatorArray['meta'] = $meta;
+        $pagination = $this->paginationDetails($orders);
+        $paginatorArray['meta'] = $pagination['meta'];
 
         return response()->json([
             'ok' => true,
             'data' => $paginatorArray,
-            'meta' => $meta,
             'orders' => $orders->items(),
-        ]);
+        ] + $pagination);
     }
 
     /**
@@ -193,20 +194,19 @@ class AdminController extends Controller
             return $this->cancelOrderAsAdmin($order);
         }
 
-        $statusChanged = false;
+        $oldStatus = $order->status;
 
         if (! empty($validated['status'])) {
-            $statusKey = $this->resolveStatusKey($validated['status']);
-            $oldStatus = $order->status instanceof \BackedEnum ? $order->status->value : $order->status;
-            $order->update(['status' => $statusKey]);
-            if ($oldStatus !== $statusKey) {
-                $statusChanged = true;
-            }
+            $order->update(['status' => $this->resolveStatusKey($validated['status'])]);
         }
 
         if (! empty($validated['payment_status'])) {
-            $paymentKey = $this->resolvePaymentStatusKey($validated['payment_status']);
-            $order->update(['payment_status' => $paymentKey]);
+            $oldPaymentStatus = $order->payment_status;
+            $order->update(['payment_status' => $this->resolvePaymentStatusKey($validated['payment_status'])]);
+
+            if ($order->payment_status !== $oldPaymentStatus) {
+                $order->user?->notify(new PaymentStatusUpdated($order));
+            }
         }
 
         if (! empty($validated['install_statuses']) && is_array($validated['install_statuses'])) {
@@ -214,22 +214,18 @@ class AdminController extends Controller
                 $itemId = $itemStatus['item_id'] ?? $itemStatus['id'] ?? null;
                 $newInstallStatus = $itemStatus['install_status'] ?? $itemStatus['status'] ?? null;
                 if ($itemId && $newInstallStatus) {
-                    $installKey = $this->resolveInstallStatusKey($newInstallStatus);
                     $item = $order->items()->find($itemId);
                     if ($item) {
-                        $item->update([
-                            'installation_status' => $installKey,
-                            'installed_at' => $installKey === 'installed' ? now() : null,
-                        ]);
+                        $this->updateInstallationStatus($order, $item, $this->resolveInstallStatusKey($newInstallStatus));
                     }
                 }
             }
-            $order->syncStatusFromItems();
-            $statusChanged = true;
+            // The items were eager loaded before the changes above; sync from their new statuses.
+            $order->load('items')->syncStatusFromItems();
         }
 
         $order->refresh();
-        if ($statusChanged) {
+        if ($order->status !== $oldStatus) {
             $order->user?->notify(new OrderStatusUpdated($order));
         }
 
@@ -294,8 +290,13 @@ class AdminController extends Controller
         $order = Order::findOrFail($id);
         $this->ensureOrderIsNotCancelled($order);
         $paymentKey = $this->resolvePaymentStatusKey($validated['payment_status']);
+        $oldPaymentStatus = $order->payment_status;
 
         $order->update(['payment_status' => $paymentKey]);
+
+        if ($order->payment_status !== $oldPaymentStatus) {
+            $order->user?->notify(new PaymentStatusUpdated($order));
+        }
 
         return response()->json([
             'ok' => true,
@@ -321,10 +322,7 @@ class AdminController extends Controller
 
         $oldOrderStatus = $order->status instanceof \BackedEnum ? $order->status->value : $order->status;
 
-        $item->update([
-            'installation_status' => $installKey,
-            'installed_at' => $installKey === 'installed' ? now() : null,
-        ]);
+        $this->updateInstallationStatus($order, $item, $installKey);
 
         $order->syncStatusFromItems();
         $order->refresh();
@@ -371,25 +369,30 @@ class AdminController extends Controller
         }
 
         $users = $query->paginate($this->perPage($request));
-        $users->getCollection()->transform(fn (User $user) => $user->toArray() + [
-            'phone' => $user->phonenumber,
-            'role' => $user->is_admin ? 'admin' : 'user',
-            'wallet_balance' => (float) ($user->wallet?->balance ?? 0),
-        ]);
+        $users->getCollection()->transform(fn (User $user) => $this->adminUserArray($user));
         $paginatorArray = $users->toArray();
-        $meta = [
-            'current_page' => $users->currentPage(),
-            'last_page' => $users->lastPage(),
-            'per_page' => $users->perPage(),
-            'total' => $users->total(),
-        ];
-        $paginatorArray['meta'] = $meta;
+        $pagination = $this->paginationDetails($users);
+        $paginatorArray['meta'] = $pagination['meta'];
 
         return response()->json([
             'ok' => true,
             'data' => $paginatorArray,
-            'meta' => $meta,
             'users' => $users->items(),
+        ] + $pagination);
+    }
+
+    /**
+     * Get a single user for the admin user editor.
+     */
+    public function userDetail(int $id): JsonResponse
+    {
+        $user = User::with('wallet')->withCount('orders')->findOrFail($id);
+        $userData = $this->adminUserArray($user);
+
+        return response()->json([
+            'ok' => true,
+            'data' => $userData,
+            'user' => $userData,
         ]);
     }
 
@@ -404,7 +407,7 @@ class AdminController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'phone' => ['required', 'string', 'max:20', 'unique:users,phonenumber'],
             'email' => ['nullable', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:6'],
+            'password' => ['required', 'string', 'min:8'],
             'is_admin' => ['nullable', 'boolean'],
             'wallet_balance' => ['nullable', 'numeric', 'min:0'],
         ]);
@@ -443,7 +446,7 @@ class AdminController extends Controller
             'name' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:20', 'unique:users,phonenumber,'.$id],
             'email' => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
-            'password' => ['nullable', 'string', 'min:6'],
+            'password' => ['nullable', 'string', 'min:8'],
             'is_admin' => ['nullable', 'boolean'],
             'wallet_balance' => ['nullable', 'numeric', 'min:0'],
         ]);
@@ -548,20 +551,14 @@ class AdminController extends Controller
         $games->getCollection()->transform(fn (Game $game) => $game->toCatalogArray());
 
         $paginatorArray = $games->toArray();
-        $meta = [
-            'current_page' => $games->currentPage(),
-            'last_page' => $games->lastPage(),
-            'per_page' => $games->perPage(),
-            'total' => $games->total(),
-        ];
-        $paginatorArray['meta'] = $meta;
+        $pagination = $this->paginationDetails($games);
+        $paginatorArray['meta'] = $pagination['meta'];
 
         return response()->json([
             'ok' => true,
             'data' => $paginatorArray,
-            'meta' => $meta,
             'games' => $games->items(),
-        ]);
+        ] + $pagination);
     }
 
     /**
@@ -926,14 +923,18 @@ class AdminController extends Controller
      */
     public function transactions(Request $request): JsonResponse
     {
-        $transactions = WalletTransaction::with('wallet.user')
-            ->latest()
-            ->paginate($this->perPage($request, 20));
+        $query = WalletTransaction::with('wallet.user')->latest()->orderByDesc('id');
+
+        if ($request->filled('user_id')) {
+            $query->whereHas('wallet', fn ($wallet) => $wallet->where('user_id', $request->integer('user_id')));
+        }
+
+        $transactions = $query->paginate($this->perPage($request, 20))->withQueryString();
 
         return response()->json([
             'ok' => true,
             'data' => $transactions,
-        ]);
+        ] + $this->paginationDetails($transactions));
     }
 
     /**
@@ -1291,13 +1292,51 @@ class AdminController extends Controller
     private function adjustWalletBalance(User $user, float $targetBalance): void
     {
         $wallet = $this->walletService->getOrCreateWallet($user);
-        $difference = round($targetBalance - (float) $wallet->balance, 2);
+        $previousBalance = (float) $wallet->balance;
+        $difference = round($targetBalance - $previousBalance, 2);
 
-        if ($difference > 0) {
-            $this->walletService->credit($user, $difference, 'admin-adjustment', 'Balance adjusted by admin');
-        } elseif ($difference < 0) {
-            $this->walletService->debit($user, abs($difference), 'admin-adjustment', 'Balance adjusted by admin');
+        if ($difference === 0.0) {
+            return;
         }
+
+        $wallet = $difference > 0
+            ? $this->walletService->credit($user, $difference, 'admin-adjustment', 'Balance adjusted by admin')
+            : $this->walletService->debit($user, abs($difference), 'admin-adjustment', 'Balance adjusted by admin');
+
+        $user->notify(new WalletBalanceAdjusted($previousBalance, (float) $wallet->balance));
+    }
+
+    /**
+     * Change one item's installation status and tell the customer about it.
+     */
+    private function updateInstallationStatus(Order $order, OrderItem $item, string $installKey): void
+    {
+        if ($item->installation_status === $installKey) {
+            return;
+        }
+
+        $item->update([
+            'installation_status' => $installKey,
+            'installed_at' => $installKey === 'installed' ? now() : null,
+        ]);
+
+        $order->user?->notify(new InstallationStatusUpdated($item->load('game')));
+    }
+
+    /**
+     * A user row for the admin panel: the model's columns plus the names the
+     * frontend uses.
+     *
+     * @return array<string, mixed>
+     */
+    private function adminUserArray(User $user): array
+    {
+        return $user->toArray() + [
+            'phone' => $user->phonenumber,
+            'role' => $user->is_admin ? 'admin' : 'user',
+            'wallet_balance' => (float) ($user->wallet?->balance ?? 0),
+            'avatar_url' => $user->avatar_url,
+        ];
     }
 
     /**
@@ -1402,7 +1441,6 @@ class AdminController extends Controller
             ], 422);
         }
 
-        $order->user?->notify(new OrderStatusUpdated($order));
         $orderData = $order->toApiArray();
 
         return response()->json([
