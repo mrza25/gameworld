@@ -78,7 +78,7 @@ class AdminController extends Controller
      */
     public function orders(Request $request): JsonResponse
     {
-        $query = Order::with(['user', 'items.game', 'items.gameVariant.platform', 'items.selectedOptions', 'payments'])->latest()->orderByDesc('id');
+        $query = Order::with(['user', 'items.game', 'items.gameVariant.platform', 'items.selectedOption', 'payments'])->latest()->orderByDesc('id');
 
         foreach (['statusRaw' => 'status', 'paymentStatusRaw' => 'payment_status', 'date_from' => 'from_date', 'date_to' => 'to_date'] as $alias => $field) {
             if (! $request->filled($field) && $request->filled($alias)) {
@@ -152,7 +152,7 @@ class AdminController extends Controller
      */
     public function orderDetail(int|string $id): JsonResponse
     {
-        $order = Order::with(['user', 'items.game', 'items.gameVariant.platform', 'items.selectedOptions', 'payments'])
+        $order = Order::with(['user', 'items.game', 'items.gameVariant.platform', 'items.selectedOption', 'payments'])
             ->findOrFail(Order::idFromReference($id));
 
         $orderData = $this->orderWithUser($order);
@@ -229,7 +229,7 @@ class AdminController extends Controller
             $order->user?->notify(new OrderStatusUpdated($order));
         }
 
-        $orderData = $order->fresh(['user', 'items.game', 'items.gameVariant.platform', 'items.selectedOptions', 'payments'])->toApiArray();
+        $orderData = $order->fresh(['user', 'items.game', 'items.gameVariant.platform', 'items.selectedOption', 'payments'])->toApiArray();
 
         return response()->json([
             'ok' => true,
@@ -579,7 +579,7 @@ class AdminController extends Controller
      */
     public function gameDetail(int|string $id): JsonResponse
     {
-        $game = Game::with(['variants.platform', 'options'])
+        $game = Game::with(['variants.platform', 'variants.activeOptions'])
             ->where('id', is_numeric($id) ? (int) $id : 0)
             ->orWhere('slug', (string) $id)
             ->firstOrFail();
@@ -600,7 +600,6 @@ class AdminController extends Controller
     public function storeGame(Request $request): JsonResponse
     {
         $this->mergeGameFieldAliases($request);
-        $this->mergeGameOptionsInput($request);
 
         $modes = $this->decodeListInput($request->input('modes')) ?: ['تک‌نفره', 'آنلاین'];
         $languages = $this->decodeListInput($request->input('languages')) ?: ['انگلیسی', 'زیرنویس فارسی'];
@@ -609,7 +608,8 @@ class AdminController extends Controller
         $firstVariant = is_array($rawVariants[0] ?? null) ? $rawVariants[0] : [];
 
         $basePrice = (float) (
-            $request->input('price')
+            $this->firstOptionPrice($firstVariant)
+            ?? $request->input('price')
             ?? $request->input('base_price')
             ?? $request->input('basePrice')
             ?? $request->input('amount')
@@ -648,8 +648,8 @@ class AdminController extends Controller
             'variants.*.size' => ['required', 'numeric', 'min:0'],
             'variants.*.is_available' => ['nullable', 'boolean'],
             ...$this->gameImageRules($request),
-            ...$this->gameOptionRules(),
-        ], $this->gameOptionMessages());
+            ...$this->variantOptionRules($request),
+        ], $this->variantOptionMessages());
 
         $explicitPlatform = $request->input('platform') ?? $request->input('console');
         $basePlatform = is_string($explicitPlatform) && $explicitPlatform !== ''
@@ -692,16 +692,17 @@ class AdminController extends Controller
             ]);
 
             foreach ($validated['variants'] as $v) {
-                $game->variants()->create([
+                $variant = $game->variants()->create([
                     'platform_id' => $v['platform_id'],
                     'price' => $v['price'],
                     'size' => $v['size'],
                     'is_available' => $v['is_available'] ?? true,
                 ]);
-            }
 
-            if (! empty($validated['options'])) {
-                $game->syncOptions($validated['options']);
+                if (! empty($v['options'])) {
+                    $variant->syncOptions($v['options']);
+                    $variant->syncPriceWithDefaultOption();
+                }
             }
 
             $game->setPinned((bool) ($validated['is_pinned'] ?? false));
@@ -710,7 +711,7 @@ class AdminController extends Controller
             return $game;
         });
 
-        $catalogData = $game->fresh(['variants.platform', 'options'])->toCatalogArray();
+        $catalogData = $game->fresh(['variants.platform', 'variants.activeOptions'])->toCatalogArray();
 
         return response()->json([
             'ok' => true,
@@ -730,27 +731,31 @@ class AdminController extends Controller
      */
     public function updateGame(Request $request, int|string $id): JsonResponse
     {
-        $game = Game::with(['variants.platform'])
+        $game = Game::with(['variants.platform', 'variants.activeOptions'])
             ->where('id', is_numeric($id) ? (int) $id : 0)
             ->orWhere('slug', (string) $id)
             ->firstOrFail();
 
         $this->mergeGameFieldAliases($request);
-        $this->mergeGameOptionsInput($request);
 
         $rawVariants = $this->rawVariantsInput($request);
         $firstVariant = is_array($rawVariants[0] ?? null) ? $rawVariants[0] : [];
 
-        $basePrice = $request->filled('price')
-            ? (float) $request->input('price')
-            : (float) ($request->input('base_price') ?? $request->input('basePrice') ?? $firstVariant['price'] ?? $game->price);
+        $basePrice = (float) (
+            $this->firstOptionPrice($firstVariant)
+            ?? ($request->filled('price') ? $request->input('price') : null)
+            ?? $request->input('base_price')
+            ?? $request->input('basePrice')
+            ?? $firstVariant['price']
+            ?? $game->price
+        );
 
         $baseSize = $request->filled('size')
             ? (float) $request->input('size')
             : (float) ($request->input('file_size') ?? $request->input('fileSize') ?? $firstVariant['size'] ?? $game->size);
 
         $request->merge([
-            'variants' => empty($rawVariants) ? null : $this->normalizeVariants($rawVariants, $basePrice, $baseSize),
+            'variants' => empty($rawVariants) ? null : $this->normalizeVariants($rawVariants, $basePrice, $baseSize, $game),
         ]);
 
         $validated = $request->validate([
@@ -770,8 +775,8 @@ class AdminController extends Controller
             'variants.*.size' => ['required', 'numeric', 'min:0'],
             'variants.*.is_available' => ['nullable', 'boolean'],
             ...$this->gameImageRules($request),
-            ...$this->gameOptionRules($game),
-        ], $this->gameOptionMessages());
+            ...$this->variantOptionRules($request, $game),
+        ], $this->variantOptionMessages());
 
         $obsoleteImage = null;
         $newImage = $this->resolveGameImageInput($request);
@@ -850,16 +855,11 @@ class AdminController extends Controller
         DB::transaction(function () use ($game, $validated, $request) {
             $game->save();
 
-            // A missing `options` field leaves them as they are; an empty list removes them.
-            if (($validated['options'] ?? null) !== null) {
-                $game->syncOptions($validated['options']);
-            }
-
             if (! empty($validated['variants'])) {
                 $keptPlatformIds = [];
 
                 foreach ($validated['variants'] as $v) {
-                    $game->variants()->updateOrCreate(
+                    $variant = $game->variants()->updateOrCreate(
                         ['platform_id' => $v['platform_id']],
                         [
                             'price' => $v['price'],
@@ -867,6 +867,14 @@ class AdminController extends Controller
                             'is_available' => $v['is_available'] ?? true,
                         ]
                     );
+
+                    // A missing `options` field leaves them as they are; an empty list removes them.
+                    if (isset($v['options'])) {
+                        $variant->syncOptions($v['options']);
+                    }
+
+                    $variant->syncPriceWithDefaultOption();
+
                     $keptPlatformIds[] = (int) $v['platform_id'];
                 }
 
@@ -877,7 +885,8 @@ class AdminController extends Controller
                     $isCopy = str_contains($variant->platform?->slug ?? '', 'copy') || ($variant->platform?->slug === 'other');
                     $price = $isCopy ? round($game->price * 0.35) : $game->price;
                     $variant->update([
-                        'price' => $price,
+                        // A variant with options takes its price from them, not from the game.
+                        'price' => $variant->activeOptions->isEmpty() ? $price : $variant->price,
                         'size' => $game->size > 0 ? $game->size : $variant->size,
                     ]);
                 }
@@ -886,7 +895,7 @@ class AdminController extends Controller
 
         $this->deleteUploadedGameImage($obsoleteImage, $game->image);
 
-        $catalogData = $game->fresh(['variants.platform', 'options'])->toCatalogArray();
+        $catalogData = $game->fresh(['variants.platform', 'variants.activeOptions'])->toCatalogArray();
 
         return response()->json([
             'ok' => true,
@@ -915,7 +924,7 @@ class AdminController extends Controller
         $game->setPinned((bool) $validated['is_pinned']);
         $game->save();
 
-        $catalogData = $game->fresh(['variants.platform', 'options'])->toCatalogArray();
+        $catalogData = $game->fresh(['variants.platform', 'variants.activeOptions'])->toCatalogArray();
 
         return response()->json([
             'ok' => true,
@@ -1102,53 +1111,91 @@ class AdminController extends Controller
     }
 
     /**
-     * Normalize the `options` field before validation. It may be an array or a
-     * JSON string (multipart FormData); null means it was not sent.
+     * Normalize a variant's `options` before validation. They may be an array or
+     * a JSON string (multipart FormData). Anything that is not a list is kept
+     * as-is so that validation reports it.
      */
-    private function mergeGameOptionsInput(Request $request): void
+    private function normalizeVariantOptions(mixed $options): mixed
     {
-        $options = $this->decodeListInput($request->input('options'));
+        $rows = $this->decodeListInput($options);
 
-        if ($options === null) {
-            $request->merge(['options' => null]);
-
-            return;
+        if ($rows === null) {
+            return $options;
         }
 
-        $request->merge(['options' => array_map(function (mixed $option): array {
-            $label = is_array($option) ? ($option['label'] ?? null) : $option;
+        return array_map(function (mixed $row): array {
+            $label = is_array($row) ? ($row['label'] ?? null) : $row;
+            $label = is_string($label) ? trim($label) : $label;
 
             return [
-                'id' => is_array($option) ? ($option['id'] ?? null) : null,
-                'label' => is_string($label) ? trim($label) : $label,
+                'id' => is_array($row) ? ($row['id'] ?? null) : null,
+                'label' => $label === '' ? null : $label,
+                'price' => is_array($row) ? ($row['price'] ?? null) : null,
             ];
-        }, $options)]);
+        }, $rows);
     }
 
     /**
+     * The price of a variant input's first option, if it has one. That option is
+     * the default, so its price is the variant's price.
+     *
+     * @param  array<string, mixed>  $variant
+     */
+    private function firstOptionPrice(array $variant): mixed
+    {
+        $options = $this->decodeListInput($variant['options'] ?? null);
+        $price = is_array($options[0] ?? null) ? ($options[0]['price'] ?? null) : null;
+
+        return is_numeric($price) ? $price : null;
+    }
+
+    /**
+     * Rules for each variant's options. They are built per variant because
+     * `distinct` compares across its whole wildcard: on `variants.*.options.*`
+     * two consoles could not both have a row called "ظرفیت ۱".
+     *
      * @return array<string, array<int, mixed>>
      */
-    private function gameOptionRules(?Game $game = null): array
+    private function variantOptionRules(Request $request, ?Game $game = null): array
     {
-        return [
-            'options' => ['nullable', 'array', 'max:6'],
-            'options.*.id' => ['nullable', 'integer', 'distinct', Rule::exists('game_options', 'id')->where('game_id', $game?->id ?? 0)],
-            'options.*.label' => ['required', 'string', 'max:100', 'distinct:ignore_case'],
-        ];
+        $rules = [];
+
+        foreach ((array) $request->input('variants') as $index => $variant) {
+            if (! is_array($variant) || ! array_key_exists('options', $variant)) {
+                continue;
+            }
+
+            $existingVariant = $game?->variants->firstWhere('platform_id', $variant['platform_id'] ?? null);
+            $hasSeveralRows = is_array($variant['options']) && count($variant['options']) > 1;
+
+            $rules["variants.{$index}.options"] = ['array', 'max:6'];
+            $rules["variants.{$index}.options.*.id"] = ['nullable', 'integer', 'distinct', Rule::exists('game_variant_options', 'id')->where('game_variant_id', $existingVariant?->id ?? 0)];
+            $rules["variants.{$index}.options.*.label"] = [$hasSeveralRows ? 'required' : 'nullable', 'string', 'max:100', 'distinct:ignore_case'];
+            $rules["variants.{$index}.options.*.price"] = ['required', 'numeric', 'gt:0', 'max:99999999.99'];
+        }
+
+        return $rules;
     }
 
     /**
      * @return array<string, string>
      */
-    private function gameOptionMessages(): array
+    private function variantOptionMessages(): array
     {
         return [
-            'options.max' => 'هر بازی حداکثر ۶ گزینه می‌تواند داشته باشد.',
-            'options.*.id.exists' => 'این گزینه متعلق به این بازی نیست.',
-            'options.*.id.distinct' => 'یک گزینه دو بار ارسال شده است.',
-            'options.*.label.required' => 'متن گزینه الزامی است.',
-            'options.*.label.max' => 'متن گزینه حداکثر ۱۰۰ کاراکتر است.',
-            'options.*.label.distinct' => 'متن گزینه‌های یک بازی نباید تکراری باشد.',
+            'variants.*.options.array' => 'گزینه‌های قیمت باید به صورت لیست ارسال شوند.',
+            'variants.*.options.max' => 'هر کنسول حداکثر ۶ گزینه‌ی قیمت می‌تواند داشته باشد.',
+            'variants.*.options.*.id.integer' => 'شناسه‌ی گزینه معتبر نیست.',
+            'variants.*.options.*.id.exists' => 'این گزینه متعلق به این کنسول نیست.',
+            'variants.*.options.*.id.distinct' => 'یک گزینه دو بار ارسال شده است.',
+            'variants.*.options.*.label.required' => 'وقتی بیش از یک ردیف قیمت هست، توضیح هر ردیف الزامی است.',
+            'variants.*.options.*.label.string' => 'توضیح گزینه باید متن باشد.',
+            'variants.*.options.*.label.max' => 'توضیح گزینه حداکثر ۱۰۰ کاراکتر است.',
+            'variants.*.options.*.label.distinct' => 'توضیح ردیف‌های یک کنسول نباید تکراری باشد.',
+            'variants.*.options.*.price.required' => 'قیمت گزینه الزامی است.',
+            'variants.*.options.*.price.numeric' => 'قیمت گزینه باید عدد باشد.',
+            'variants.*.options.*.price.gt' => 'قیمت گزینه باید بزرگ‌تر از صفر باشد.',
+            'variants.*.options.*.price.max' => 'قیمت گزینه بیش از حد مجاز است.',
         ];
     }
 
@@ -1197,9 +1244,9 @@ class AdminController extends Controller
      * validation reports them instead of silently dropping them.
      *
      * @param  array<int, mixed>  $rawVariants
-     * @return list<array{platform_id: mixed, price: mixed, size: mixed, is_available: mixed}>
+     * @return list<array{platform_id: mixed, price: mixed, size: mixed, is_available: mixed, options?: mixed}>
      */
-    private function normalizeVariants(array $rawVariants, float $basePrice, float $baseSize): array
+    private function normalizeVariants(array $rawVariants, float $basePrice, float $baseSize, ?Game $game = null): array
     {
         $normalized = [];
 
@@ -1208,12 +1255,24 @@ class AdminController extends Controller
                 $reference = $variant['platform_id'] ?? $variant['console'] ?? $variant['platform'] ?? $variant['slug'] ?? null;
                 $platform = $this->resolvePlatform($reference);
 
-                $normalized[] = [
+                $row = [
                     'platform_id' => $platform?->id ?? (is_scalar($reference) ? $reference : null),
                     'price' => $variant['price'] ?? $basePrice,
                     'size' => $variant['size'] ?? $baseSize,
                     'is_available' => $this->toBooleanOrOriginal($variant['is_available'] ?? $variant['available'] ?? true),
                 ];
+
+                if (isset($variant['options'])) {
+                    $row['options'] = $this->normalizeVariantOptions($variant['options']);
+
+                    // With options the price comes from the first one. Removing them all keeps the last price.
+                    $row['price'] = $this->firstOptionPrice($row)
+                        ?? $variant['price']
+                        ?? $game?->variants->firstWhere('platform_id', $row['platform_id'])?->price
+                        ?? $basePrice;
+                }
+
+                $normalized[] = $row;
 
                 continue;
             }
@@ -1484,7 +1543,7 @@ class AdminController extends Controller
      */
     private function recentOrders(): Collection
     {
-        return Order::with(['user', 'items.game', 'items.gameVariant.platform', 'items.selectedOptions', 'payments'])
+        return Order::with(['user', 'items.game', 'items.gameVariant.platform', 'items.selectedOption', 'payments'])
             ->latest()
             ->orderByDesc('id')
             ->take(6)

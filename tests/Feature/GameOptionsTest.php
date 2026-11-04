@@ -3,16 +3,23 @@
 namespace Tests\Feature;
 
 use App\Models\Game;
-use App\Models\GameOption;
 use App\Models\GameVariant;
+use App\Models\GameVariantOption;
 use App\Models\Order;
+use App\Models\Payment;
 use App\Models\Platform;
 use App\Models\User;
+use App\Services\CheckoutService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
+use RuntimeException;
 use Tests\TestCase;
 
+/**
+ * Each variant (a game on one console) can have up to six price rows. The
+ * customer buys exactly one, and its price is the item's whole price.
+ */
 class GameOptionsTest extends TestCase
 {
     use RefreshDatabase;
@@ -21,11 +28,15 @@ class GameOptionsTest extends TestCase
 
     private User $customer;
 
-    private Platform $platform;
+    private Platform $ps5;
+
+    private Platform $xbox;
 
     private Game $game;
 
-    private GameVariant $variant;
+    private GameVariant $ps5Variant;
+
+    private GameVariant $xboxVariant;
 
     protected function setUp(): void
     {
@@ -37,34 +48,48 @@ class GameOptionsTest extends TestCase
         $this->customer = User::factory()->create();
         $this->customer->wallet()->create(['balance' => 10000000]);
 
-        $this->platform = Platform::firstOrCreate(['slug' => 'ps5'], ['name' => 'PlayStation 5']);
-        $this->game = $this->createGame('God of War');
-        $this->variant = $this->game->variants()->sole();
-    }
+        $this->ps5 = Platform::firstOrCreate(['slug' => 'ps5'], ['name' => 'PlayStation 5']);
+        $this->xbox = Platform::firstOrCreate(['slug' => 'xbox-one'], ['name' => 'Xbox One']);
 
-    private function createGame(string $title): Game
-    {
-        $game = Game::create(['title' => $title, 'genre' => 'Action', 'is_available' => true]);
-        $game->variants()->create(['platform_id' => $this->platform->id, 'price' => 1000000, 'size' => 50, 'is_available' => true]);
-
-        return $game;
-    }
-
-    private function addOption(string $label, int $sortOrder = 0, bool $isActive = true, ?Game $game = null): GameOption
-    {
-        return ($game ?? $this->game)->options()->create(['label' => $label, 'sort_order' => $sortOrder, 'is_active' => $isActive]);
+        $this->game = Game::create(['title' => 'GTA', 'genre' => 'Action', 'is_available' => true, 'price' => 700000]);
+        $this->ps5Variant = $this->game->variants()->create(['platform_id' => $this->ps5->id, 'price' => 700000, 'size' => 50, 'is_available' => true]);
+        $this->xboxVariant = $this->game->variants()->create(['platform_id' => $this->xbox->id, 'price' => 650000, 'size' => 50, 'is_available' => true]);
     }
 
     /**
-     * @param  array<int, mixed>  $options
+     * @param  array<string, int>  $pricesByLabel
+     * @return array<int, GameVariantOption>
      */
-    private function updateOptions(array $options): TestResponse
+    private function addOptions(GameVariant $variant, array $pricesByLabel): array
     {
-        return $this->actingAs($this->admin)->patchJson(route('api.admin.games.update', $this->game->id), ['options' => $options]);
+        $variant->syncOptions(array_map(
+            fn (string $label, int $price) => ['label' => $label, 'price' => $price],
+            array_keys($pricesByLabel),
+            $pricesByLabel
+        ));
+        $variant->syncPriceWithDefaultOption();
+
+        return $variant->activeOptions()->get()->all();
     }
 
     /**
-     * @param  array<int, array<string, mixed>>  $items
+     * @param  array<int, array<string, mixed>>  $variants
+     */
+    private function saveVariants(array $variants): TestResponse
+    {
+        return $this->actingAs($this->admin)->patchJson(route('api.admin.games.update', $this->game->id), ['variants' => $variants]);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $options
+     */
+    private function savePs5Options(array $options): TestResponse
+    {
+        return $this->saveVariants([['platform_id' => 'ps5', 'size' => 50, 'options' => $options]]);
+    }
+
+    /**
+     * @param  array<int, mixed>  $items
      * @param  array<string, mixed>  $extra
      */
     private function checkout(array $items, string $method = 'wallet', array $extra = []): TestResponse
@@ -72,160 +97,250 @@ class GameOptionsTest extends TestCase
         return $this->actingAs($this->customer)->postJson(route('api.orders.checkout'), ['method' => $method, 'items' => $items] + $extra);
     }
 
-    public function test_admin_can_create_a_game_with_options(): void
+    private function walletBalance(): float
+    {
+        return (float) $this->customer->wallet()->value('balance');
+    }
+
+    private function assertNothingWasCharged(): void
+    {
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('payments', 0);
+        $this->assertEquals(10000000, $this->walletBalance());
+    }
+
+    public function test_each_console_keeps_its_own_price_rows(): void
+    {
+        $response = $this->saveVariants([
+            ['platform_id' => 'ps5', 'size' => 50, 'options' => [
+                ['label' => 'ظرفیت ۱', 'price' => 1000000],
+                ['label' => 'ظرفیت ۲', 'price' => 1500000],
+            ]],
+            ['platform_id' => 'xbox-one', 'size' => 50, 'options' => [
+                ['label' => 'ظرفیت ۱', 'price' => 800000],
+            ]],
+        ])->assertOk();
+
+        $variants = collect($response->json('data.variants'))->keyBy('platform_id');
+
+        $this->assertEquals([['ظرفیت ۱', 1000000], ['ظرفیت ۲', 1500000]], array_map(fn ($o) => [$o['label'], $o['price']], $variants['ps5']['options']));
+        $this->assertEquals([['ظرفیت ۱', 800000]], array_map(fn ($o) => [$o['label'], $o['price']], $variants['xbox-one']['options']));
+        $this->assertSame(2, $this->ps5Variant->activeOptions()->count());
+        $this->assertSame(1, $this->xboxVariant->activeOptions()->count());
+    }
+
+    public function test_game_can_be_created_with_price_rows_and_its_price_comes_from_them(): void
     {
         $response = $this->actingAs($this->admin)
             ->postJson(route('api.admin.games.store'), [
                 'title' => 'Elden Ring',
                 'genre' => 'RPG',
-                'price' => 2000000,
-                'options' => [['label' => '  ظرفیت ۱  '], ['label' => 'ظرفیت ۲']],
+                'variants' => [['platform_id' => 'ps5', 'size' => 40, 'options' => [
+                    ['label' => '  ظرفیت ۱  ', 'price' => 2000000],
+                    ['label' => 'ظرفیت ۲', 'price' => 2500000],
+                ]]],
             ])
-            ->assertCreated();
+            ->assertCreated()
+            ->assertJsonPath('data.price', 2000000)
+            ->assertJsonPath('data.variants.0.price', 2000000)
+            ->assertJsonPath('data.variants.0.options.0.label', 'ظرفیت ۱');
 
-        $this->assertSame(['ظرفیت ۱', 'ظرفیت ۲'], array_column($response->json('data.options'), 'label'));
-        $this->assertSame([0, 1], GameOption::where('game_id', $response->json('data.id'))->orderBy('id')->pluck('sort_order')->all());
+        $this->assertSame([0, 1], GameVariant::findOrFail($response->json('data.variants.0.id'))->options()->pluck('sort_order')->all());
     }
 
-    public function test_options_can_arrive_as_a_json_string_from_form_data(): void
+    public function test_price_rows_can_arrive_as_json_strings_from_form_data(): void
     {
-        $response = $this->actingAs($this->admin)->post(route('api.admin.games.store'), [
-            'title' => 'Elden Ring',
-            'genre' => 'RPG',
-            'price' => 2000000,
-            'options' => json_encode([['label' => 'ظرفیت ۱'], ['label' => 'ظرفیت ۲']]),
-        ], ['Accept' => 'application/json'])->assertCreated();
-
-        $this->assertSame(['ظرفیت ۱', 'ظرفیت ۲'], array_column($response->json('data.options'), 'label'));
-
-        $gameId = $response->json('data.id');
         $this->actingAs($this->admin)
-            ->post(route('api.admin.games.update', $gameId), ['options' => '[]'], ['Accept' => 'application/json'])
+            ->post(route('api.admin.games.update', $this->game->id), [
+                'variants' => json_encode([['platform_id' => 'ps5', 'size' => 50, 'options' => [['label' => 'A', 'price' => 900000]]]]),
+            ], ['Accept' => 'application/json'])
             ->assertOk()
-            ->assertJsonPath('data.options', []);
+            ->assertJsonPath('data.variants.0.options.0.price', 900000);
+
+        $this->actingAs($this->admin)
+            ->post(route('api.admin.games.update', $this->game->id), [
+                'variants' => [['platform_id' => 'ps5', 'size' => 50, 'options' => json_encode([['label' => 'B', 'price' => 950000]])]],
+            ], ['Accept' => 'application/json'])
+            ->assertOk()
+            ->assertJsonPath('data.variants.0.options.0.label', 'B');
     }
 
-    public function test_update_edits_adds_reorders_and_deactivates_options(): void
+    public function test_variant_price_follows_the_first_option_on_create_edit_and_reorder(): void
     {
-        $first = $this->addOption('A', 0);
-        $second = $this->addOption('B', 1);
-        $removed = $this->addOption('C', 2);
+        $this->savePs5Options([['label' => 'A', 'price' => 1000000], ['label' => 'B', 'price' => 1500000]])->assertOk();
+        $this->assertEquals(1000000, (float) $this->ps5Variant->fresh()->price);
+        [$first, $second] = $this->ps5Variant->activeOptions()->get()->all();
 
-        $response = $this->updateOptions([
-            ['id' => $second->id, 'label' => 'B edited'],
-            ['label' => 'D'],
-            ['id' => $first->id, 'label' => 'A'],
-        ])->assertOk();
+        $this->savePs5Options([['id' => $first->id, 'label' => 'A', 'price' => 1100000], ['id' => $second->id, 'label' => 'B', 'price' => 1500000]])->assertOk();
+        $this->assertEquals(1100000, (float) $this->ps5Variant->fresh()->price);
 
-        $this->assertSame(['B edited', 'D', 'A'], array_column($response->json('data.options'), 'label'));
-        $this->assertSame($second->id, $response->json('data.options.0.id'));
-        $this->assertFalse($removed->fresh()->is_active);
-        $this->assertSame(0, $second->fresh()->sort_order);
-        $this->assertSame(2, $first->fresh()->sort_order);
+        $this->savePs5Options([['id' => $second->id, 'label' => 'B', 'price' => 1500000], ['id' => $first->id, 'label' => 'A', 'price' => 1100000]])->assertOk();
+        $this->assertEquals(1500000, (float) $this->ps5Variant->fresh()->price);
+        $this->assertSame([$second->id, $first->id], $this->ps5Variant->activeOptions()->pluck('id')->all());
     }
 
-    public function test_game_update_without_options_leaves_them_untouched(): void
+    public function test_a_price_sent_for_a_variant_with_options_cannot_break_the_sync(): void
     {
-        $option = $this->addOption('A');
+        $this->addOptions($this->ps5Variant, ['A' => 1000000]);
+
+        $this->saveVariants([['platform_id' => 'ps5', 'size' => 50, 'price' => 5]])->assertOk();
+
+        $this->assertEquals(1000000, (float) $this->ps5Variant->fresh()->price);
+    }
+
+    public function test_changing_the_game_price_leaves_variants_with_options_alone(): void
+    {
+        $this->addOptions($this->ps5Variant, ['A' => 1000000]);
+
+        $this->actingAs($this->admin)
+            ->patchJson(route('api.admin.games.update', $this->game->id), ['price' => 400000])
+            ->assertOk();
+
+        $this->assertEquals(1000000, (float) $this->ps5Variant->fresh()->price);
+        $this->assertEquals(400000, (float) $this->xboxVariant->fresh()->price);
+    }
+
+    public function test_game_price_shows_the_default_option_of_its_first_variant(): void
+    {
+        $this->saveVariants([['platform_id' => 'ps5', 'size' => 50, 'options' => [['label' => 'A', 'price' => 1200000]]]])
+            ->assertOk()
+            ->assertJsonPath('data.price', 1200000);
+    }
+
+    public function test_options_left_out_stay_untouched_and_an_empty_list_deactivates_them(): void
+    {
+        [$option] = $this->addOptions($this->ps5Variant, ['A' => 1000000]);
+
+        $this->saveVariants([['platform_id' => 'ps5', 'size' => 60, 'price' => 1000000]])
+            ->assertOk()
+            ->assertJsonPath('data.variants.0.options.0.id', $option->id);
 
         $this->actingAs($this->admin)
             ->patchJson(route('api.admin.games.update', $this->game->id), ['title' => 'New title'])
-            ->assertOk()
-            ->assertJsonPath('data.options', [['id' => $option->id, 'label' => 'A']]);
-    }
+            ->assertOk();
+        $this->assertTrue($option->fresh()->is_active);
 
-    public function test_empty_list_removes_all_options(): void
-    {
-        $option = $this->addOption('A');
-
-        $this->updateOptions([])->assertOk()->assertJsonPath('data.options', []);
+        $this->savePs5Options([])->assertOk()->assertJsonPath('data.variants.0.options', []);
 
         $this->assertFalse($option->fresh()->is_active);
+        $this->assertEquals(1000000, (float) $this->ps5Variant->fresh()->price);
+    }
+
+    public function test_removed_rows_are_deactivated_and_the_next_one_becomes_the_default(): void
+    {
+        [$first, $second] = $this->addOptions($this->ps5Variant, ['A' => 1000000, 'B' => 1500000]);
+
+        $this->savePs5Options([['id' => $second->id, 'label' => 'B', 'price' => 1500000]])->assertOk();
+
+        $this->assertFalse($first->fresh()->is_active);
+        $this->assertEquals(1500000, (float) $this->ps5Variant->fresh()->price);
+    }
+
+    public function test_a_single_row_may_have_no_label(): void
+    {
+        $this->savePs5Options([['price' => 900000]])
+            ->assertOk()
+            ->assertJsonPath('data.variants.0.options.0.label', null);
+
+        $this->savePs5Options([['label' => '   ', 'price' => 900000]])
+            ->assertOk()
+            ->assertJsonPath('data.variants.0.options.0.label', null);
+    }
+
+    public function test_price_rows_are_validated(): void
+    {
+        $rows = fn (int $count) => array_map(fn (int $i) => ['label' => "row {$i}", 'price' => 1000], range(1, $count));
+
+        $this->savePs5Options($rows(6))->assertOk();
+
+        $this->savePs5Options($rows(7))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('variants.0.options')
+            ->assertJsonPath('error', 'هر کنسول حداکثر ۶ گزینه‌ی قیمت می‌تواند داشته باشد.');
+
+        foreach ([0, -1, 'free', null] as $price) {
+            $this->savePs5Options([['label' => 'A', 'price' => $price]])
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors('variants.0.options.0.price');
+        }
+
+        $this->savePs5Options([['label' => 'تکراری', 'price' => 1000], ['label' => ' تکراری ', 'price' => 2000]])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['variants.0.options.0.label', 'variants.0.options.1.label'])
+            ->assertJsonPath('error', 'توضیح ردیف‌های یک کنسول نباید تکراری باشد.');
+
+        $this->savePs5Options([['label' => 'A', 'price' => 1000], ['price' => 2000]])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('variants.0.options.1.label')
+            ->assertJsonPath('error', 'وقتی بیش از یک ردیف قیمت هست، توضیح هر ردیف الزامی است.');
+
+        $this->savePs5Options([['label' => str_repeat('x', 101), 'price' => 1000]])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('variants.0.options.0.label');
+    }
+
+    public function test_an_option_of_another_console_cannot_be_edited(): void
+    {
+        [$xboxOption] = $this->addOptions($this->xboxVariant, ['A' => 800000]);
+
+        $this->savePs5Options([['id' => $xboxOption->id, 'label' => 'stolen', 'price' => 1]])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('variants.0.options.0.id')
+            ->assertJsonPath('error', 'این گزینه متعلق به این کنسول نیست.');
+
+        $this->assertSame('A', $xboxOption->fresh()->label);
     }
 
     public function test_resending_labels_without_ids_keeps_the_same_rows(): void
     {
-        $first = $this->addOption('A', 0);
-        $removed = $this->addOption('B', 1, isActive: false);
+        [$first, $second] = $this->addOptions($this->ps5Variant, ['A' => 1000000, 'B' => 1500000]);
 
-        $this->updateOptions([['label' => 'a'], ['label' => 'B']])
+        $this->savePs5Options([['label' => 'a', 'price' => 1000000], ['label' => 'B', 'price' => 1500000]])
             ->assertOk()
-            ->assertJsonPath('data.options', [['id' => $first->id, 'label' => 'a'], ['id' => $removed->id, 'label' => 'B']]);
+            ->assertJsonPath('data.variants.0.options.0.id', $first->id)
+            ->assertJsonPath('data.variants.0.options.1.id', $second->id);
 
-        $this->assertSame(2, $this->game->options()->count());
+        $this->assertSame(2, $this->ps5Variant->options()->count());
     }
 
-    public function test_an_explicit_id_wins_over_a_label_match(): void
+    public function test_game_level_options_are_gone(): void
     {
-        $option = $this->addOption('A', 0);
-
-        $response = $this->updateOptions([['label' => 'A'], ['id' => $option->id, 'label' => 'B']])->assertOk();
-
-        $this->assertSame(['A', 'B'], array_column($response->json('data.options'), 'label'));
-        $this->assertNotSame($option->id, $response->json('data.options.0.id'));
-        $this->assertSame($option->id, $response->json('data.options.1.id'));
-    }
-
-    public function test_a_game_can_have_up_to_six_options(): void
-    {
-        $this->updateOptions(array_map(fn (int $i) => ['label' => "option {$i}"], range(1, 6)))
+        $this->actingAs($this->admin)
+            ->patchJson(route('api.admin.games.update', $this->game->id), ['options' => [['label' => 'A', 'price' => 1]]])
             ->assertOk()
-            ->assertJsonCount(6, 'data.options');
-
-        $this->updateOptions(array_map(fn (int $i) => ['label' => "option {$i}"], range(1, 7)))
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('options')
-            ->assertJsonPath('error', 'هر بازی حداکثر ۶ گزینه می‌تواند داشته باشد.');
+            ->assertJsonMissingPath('data.options')
+            ->assertJsonPath('data.variants.0.options', []);
     }
 
-    public function test_options_are_validated(): void
+    public function test_every_catalog_endpoint_returns_active_options_inside_each_variant(): void
     {
-        $this->updateOptions([['label' => 'تکراری'], ['label' => ' تکراری ']])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors(['options.0.label', 'options.1.label'])
-            ->assertJsonPath('error', 'متن گزینه‌های یک بازی نباید تکراری باشد.');
+        [$first, $second] = $this->addOptions($this->ps5Variant, ['A' => 1000000, 'B' => 1500000]);
+        $this->ps5Variant->options()->create(['label' => 'hidden', 'price' => 1, 'sort_order' => 9, 'is_active' => false]);
 
-        $this->updateOptions([['label' => 'Same'], ['label' => 'same']])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('options.1.label');
+        $expected = [
+            ['id' => $first->id, 'label' => 'A', 'price' => 1000000],
+            ['id' => $second->id, 'label' => 'B', 'price' => 1500000],
+        ];
 
-        $this->updateOptions([['label' => '   ']])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('options.0.label');
+        $variantsOf = fn (TestResponse $response, string $path) => collect($response->assertOk()->json($path))->keyBy('platform_id');
 
-        $this->updateOptions([['label' => str_repeat('x', 101)]])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('options.0.label');
-
-        $otherOption = $this->addOption('other', game: $this->createGame('Other'));
-        $this->updateOptions([['id' => $otherOption->id, 'label' => 'stolen']])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('options.0.id');
-
-        $this->assertSame('other', $otherOption->fresh()->label);
-        $this->assertSame(0, $this->game->options()->count());
-    }
-
-    public function test_every_catalog_endpoint_returns_active_options_in_order(): void
-    {
-        $second = $this->addOption('B', 1);
-        $first = $this->addOption('A', 0);
-        $this->addOption('hidden', 2, isActive: false);
-
-        $expected = [['id' => $first->id, 'label' => 'A'], ['id' => $second->id, 'label' => 'B']];
-
-        $this->getJson(route('api.products.index'))->assertJsonPath('data.0.options', $expected);
-        $this->getJson(route('api.games.index'))->assertJsonPath('data.0.options', $expected);
-        $this->getJson(route('api.products.show', $this->game->slug))->assertJsonPath('data.options', $expected);
-        $this->getJson(route('api.games.show', $this->game->slug))->assertJsonPath('data.options', $expected);
-
-        $this->actingAs($this->admin)->getJson(route('api.admin.games.index'))->assertJsonPath('data.data.0.options', $expected);
-        $this->actingAs($this->admin)->getJson(route('api.admin.games.show', $this->game->id))->assertJsonPath('data.options', $expected);
+        foreach ([
+            [$this->getJson(route('api.products.index')), 'data.0.variants'],
+            [$this->getJson(route('api.games.index')), 'data.0.variants'],
+            [$this->getJson(route('api.products.show', $this->game->slug)), 'data.variants'],
+            [$this->getJson(route('api.games.show', $this->game->slug)), 'data.variants'],
+            [$this->actingAs($this->admin)->getJson(route('api.admin.games.index')), 'data.data.0.variants'],
+            [$this->actingAs($this->admin)->getJson(route('api.admin.games.show', $this->game->id)), 'data.variants'],
+        ] as [$response, $path]) {
+            $variants = $variantsOf($response, $path);
+            $this->assertSame($expected, $variants['ps5']['options']);
+            $this->assertSame([], $variants['xbox-one']['options']);
+        }
     }
 
     public function test_listing_options_does_not_add_a_query_per_game(): void
     {
-        $this->addOption('A');
+        $this->addOptions($this->ps5Variant, ['A' => 1000]);
         $countQueries = function (): int {
             DB::flushQueryLog();
             DB::enableQueryLog();
@@ -239,139 +354,301 @@ class GameOptionsTest extends TestCase
         $queriesForOneGame = $countQueries();
 
         foreach (range(1, 4) as $i) {
-            $this->addOption('A', game: $this->createGame("Game {$i}"));
+            $game = Game::create(['title' => "Game {$i}", 'genre' => 'Action', 'is_available' => true]);
+            $this->addOptions($game->variants()->create(['platform_id' => $this->ps5->id, 'price' => 1000, 'size' => 1, 'is_available' => true]), ['A' => 1000]);
         }
 
         $this->assertSame($queriesForOneGame, $countQueries());
     }
 
-    public function test_wallet_checkout_saves_selected_options_and_every_order_endpoint_returns_them(): void
+    public function test_checkout_without_an_option_charges_the_default(): void
     {
-        $first = $this->addOption('A', 0);
-        $this->addOption('B', 1);
-        $third = $this->addOption('C', 2);
-        $expected = [['id' => $first->id, 'label' => 'A'], ['id' => $third->id, 'label' => 'C']];
+        [$first] = $this->addOptions($this->ps5Variant, ['A' => 1000000, 'B' => 1500000]);
 
-        $response = $this->checkout([['variantId' => $this->variant->id, 'option_ids' => [$third->id, $first->id, $first->id]]])
+        $this->checkout([['variantId' => $this->ps5Variant->id]])
             ->assertCreated()
-            ->assertJsonPath('data.order.items.0.selected_options', $expected);
-        $orderId = $response->json('data.order_id');
+            ->assertJsonPath('data.amount', 1000000)
+            ->assertJsonPath('data.order.items.0.price', 1000000)
+            ->assertJsonPath('data.order.items.0.selected_option', ['id' => $first->id, 'label' => 'A', 'price' => 1000000]);
 
-        $this->actingAs($this->customer)->getJson(route('api.orders.index'))->assertJsonPath('data.0.items.0.selected_options', $expected);
-        $this->actingAs($this->customer)->getJson(route('api.orders.show', $orderId))->assertJsonPath('data.items.0.selected_options', $expected);
-        $this->actingAs($this->admin)->getJson(route('api.admin.orders'))->assertJsonPath('data.data.0.items.0.selected_options', $expected);
-        $this->actingAs($this->admin)->getJson(route('api.admin.orders.show', $orderId))->assertJsonPath('data.items.0.selected_options', $expected);
+        $this->assertEquals(9000000, $this->walletBalance());
     }
 
-    public function test_gateway_checkout_keeps_selections_through_the_payment_even_if_the_option_changes(): void
+    public function test_the_flat_variants_and_games_inputs_use_the_default_option(): void
     {
-        $edited = $this->addOption('A', 0);
-        $removed = $this->addOption('B', 1);
+        [$first] = $this->addOptions($this->ps5Variant, ['A' => 1000000, 'B' => 1500000]);
 
-        $callbackUrl = $this->checkout(
-            [['variant_id' => $this->variant->id, 'option_ids' => [$edited->id, $removed->id]]],
-            'gateway'
-        )->assertOk()->json('callback_url');
+        $this->actingAs($this->customer)
+            ->postJson(route('api.orders.checkout'), ['method' => 'wallet', 'console' => 'ps5', 'variants' => [$this->ps5Variant->id]])
+            ->assertCreated()
+            ->assertJsonPath('data.order.items.0.selected_option.id', $first->id);
 
+        $this->actingAs($this->customer)
+            ->postJson(route('api.orders.checkout'), ['method' => 'wallet', 'console' => 'ps5', 'games' => [$this->game->slug]])
+            ->assertCreated()
+            ->assertJsonPath('data.amount', 1000000)
+            ->assertJsonPath('data.order.items.0.selected_option.id', $first->id);
+    }
+
+    public function test_wallet_checkout_with_a_non_default_option_charges_its_price_and_refunds_it(): void
+    {
+        [, $second] = $this->addOptions($this->ps5Variant, ['A' => 1000000, 'B' => 1500000]);
+
+        $response = $this->checkout([['variantId' => $this->ps5Variant->id, 'option_id' => $second->id]])
+            ->assertCreated()
+            ->assertJsonPath('data.amount', 1500000)
+            ->assertJsonPath('data.order.total', 1500000)
+            ->assertJsonPath('data.order.items.0.price', 1500000);
+
+        $this->assertEquals(8500000, $this->walletBalance());
+
+        $this->actingAs($this->customer)
+            ->postJson(route('api.orders.cancel', $response->json('data.order_id')))
+            ->assertOk();
+
+        $this->assertEquals(10000000, $this->walletBalance());
+    }
+
+    public function test_gateway_checkout_with_a_non_default_option_charges_its_price(): void
+    {
+        [, $second] = $this->addOptions($this->ps5Variant, ['A' => 1000000, 'B' => 1500000]);
+
+        $response = $this->checkout([['variantId' => $this->ps5Variant->id, 'option_id' => $second->id]], 'gateway')
+            ->assertOk()
+            ->assertJsonPath('data.amount', 1500000);
+
+        $this->assertEquals(1500000, (float) Payment::sole()->amount);
         $this->assertDatabaseCount('order_item_options', 0);
 
-        $this->updateOptions([['id' => $edited->id, 'label' => 'A edited']])->assertOk();
+        $this->app['auth']->forgetGuards();
+        $this->get($response->json('callback_url'))->assertRedirect();
 
+        $order = Order::where('user_id', $this->customer->id)->sole();
+        $this->assertEquals(1500000, (float) $order->total);
+
+        $this->actingAs($this->customer)
+            ->getJson(route('api.orders.show', $order->id))
+            ->assertJsonPath('data.items.0.selected_option', ['id' => $second->id, 'label' => 'B', 'price' => 1500000]);
+    }
+
+    public function test_gateway_payment_keeps_the_agreed_price_if_the_option_changes_during_payment(): void
+    {
+        [, $second] = $this->addOptions($this->ps5Variant, ['A' => 1000000, 'B' => 1500000]);
+
+        $callbackUrl = $this->checkout([['variantId' => $this->ps5Variant->id, 'option_id' => $second->id]], 'gateway')
+            ->assertOk()
+            ->json('callback_url');
+
+        $this->savePs5Options([['label' => 'other', 'price' => 99000]])->assertOk();
+        $this->assertFalse($second->fresh()->is_active);
+
+        $this->app['auth']->forgetGuards();
         $this->get($callbackUrl)->assertRedirect();
 
         $order = Order::where('user_id', $this->customer->id)->sole();
-        $this->actingAs($this->customer)
-            ->getJson(route('api.orders.show', $order->id))
-            ->assertJsonPath('data.items.0.selected_options', [
-                ['id' => $edited->id, 'label' => 'A'],
-                ['id' => $removed->id, 'label' => 'B'],
-            ]);
+        $this->assertEquals(1500000, (float) $order->total);
+        $this->assertSame('B', $order->items()->sole()->selectedOption->label);
     }
 
-    public function test_inactive_or_foreign_options_are_rejected_without_charging(): void
+    public function test_the_automatic_payment_method_uses_the_option_price(): void
     {
-        $inactive = $this->addOption('hidden', isActive: false);
-        $foreign = $this->addOption('other', game: $this->createGame('Other'));
+        [, $second] = $this->addOptions($this->ps5Variant, ['A' => 1000000, 'B' => 1500000]);
+        $this->customer->wallet()->update(['balance' => 1200000]);
 
-        foreach ([$inactive->id, $foreign->id, 999999] as $optionId) {
-            $this->checkout([['variantId' => $this->variant->id, 'option_ids' => [$optionId]]])
-                ->assertUnprocessable()
-                ->assertJsonPath('ok', false)
-                ->assertJsonPath('error', 'گزینه‌ی انتخاب‌شده برای بازی «God of War» معتبر نیست.');
-        }
+        $this->actingAs($this->customer)
+            ->postJson(route('api.orders.checkout'), ['items' => [['variantId' => $this->ps5Variant->id, 'option_id' => $second->id]]])
+            ->assertOk()
+            ->assertJsonPath('data.method', 'gateway')
+            ->assertJsonPath('data.amount', 1500000);
 
-        $this->checkout([['variantId' => $this->variant->id, 'option_ids' => [$foreign->id]]], 'gateway')
-            ->assertUnprocessable();
+        $this->actingAs($this->customer)
+            ->postJson(route('api.orders.checkout'), ['items' => [['variantId' => $this->ps5Variant->id]]])
+            ->assertCreated()
+            ->assertJsonPath('data.method', 'wallet')
+            ->assertJsonPath('data.amount', 1000000);
+    }
+
+    public function test_the_wallet_balance_is_checked_against_the_option_price(): void
+    {
+        [, $second] = $this->addOptions($this->ps5Variant, ['A' => 1000000, 'B' => 1500000]);
+        $this->customer->wallet()->update(['balance' => 1200000]);
+
+        $this->checkout([['variantId' => $this->ps5Variant->id, 'option_id' => $second->id]])->assertUnprocessable();
 
         $this->assertDatabaseCount('orders', 0);
-        $this->assertDatabaseCount('payments', 0);
-        $this->assertEquals(10000000, (float) $this->customer->wallet()->value('balance'));
+        $this->assertEquals(1200000, $this->walletBalance());
     }
 
-    public function test_option_ids_must_be_a_list_of_integers(): void
+    public function test_invalid_options_are_rejected_without_charging(): void
     {
-        $this->checkout([['variantId' => $this->variant->id, 'option_ids' => 'not-a-list']])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('items.0.option_ids');
+        $this->addOptions($this->ps5Variant, ['A' => 1000000]);
+        [$xboxOption] = $this->addOptions($this->xboxVariant, ['A' => 800000]);
+        $inactive = $this->ps5Variant->options()->create(['label' => 'hidden', 'price' => 1, 'sort_order' => 9, 'is_active' => false]);
 
-        $this->checkout([['variantId' => $this->variant->id, 'option_ids' => ['abc']]])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('items.0.option_ids.0');
+        foreach ([$xboxOption->id, $inactive->id, 999999] as $optionId) {
+            foreach (['wallet', 'gateway'] as $method) {
+                $this->checkout([['variantId' => $this->ps5Variant->id, 'option_id' => $optionId]], $method)
+                    ->assertUnprocessable()
+                    ->assertJsonPath('ok', false)
+                    ->assertJsonPath('error', 'گزینه‌ی انتخاب‌شده برای بازی «GTA» روی کنسول PlayStation 5 معتبر نیست.');
+            }
+        }
+
+        $this->assertNothingWasCharged();
     }
 
-    public function test_selecting_options_is_optional(): void
+    public function test_an_option_is_rejected_when_the_variant_has_none(): void
     {
-        $this->addOption('A');
-        $withoutOptions = $this->createGame('No options')->variants()->sole();
+        $inactive = $this->ps5Variant->options()->create(['label' => 'hidden', 'price' => 1, 'is_active' => false]);
+
+        $this->checkout([['variantId' => $this->ps5Variant->id, 'option_id' => $inactive->id]])
+            ->assertUnprocessable()
+            ->assertJsonPath('error', 'بازی «GTA» روی کنسول PlayStation 5 گزینه‌ی قیمت ندارد.');
+
+        $this->assertNothingWasCharged();
+    }
+
+    public function test_an_option_of_a_variant_swapped_out_for_the_console_is_rejected(): void
+    {
+        $this->addOptions($this->ps5Variant, ['A' => 1000000]);
+        [$xboxOption] = $this->addOptions($this->xboxVariant, ['A' => 800000]);
+
+        $this->checkout([['variantId' => $this->xboxVariant->id, 'option_id' => $xboxOption->id]], extra: ['console' => 'ps5'])
+            ->assertUnprocessable()
+            ->assertJsonPath('error', 'گزینه‌ی انتخاب‌شده برای بازی «GTA» روی کنسول PlayStation 5 معتبر نیست.');
+
+        $this->assertNothingWasCharged();
+    }
+
+    public function test_an_option_of_the_swapped_in_variant_is_accepted(): void
+    {
+        [, $second] = $this->addOptions($this->ps5Variant, ['A' => 1000000, 'B' => 1500000]);
+
+        $this->checkout([['variantId' => $this->xboxVariant->id, 'option_id' => $second->id]], extra: ['console' => 'ps5'])
+            ->assertCreated()
+            ->assertJsonPath('data.amount', 1500000)
+            ->assertJsonPath('data.order.items.0.variant_id', $this->ps5Variant->id);
+    }
+
+    public function test_an_item_can_reference_the_game_instead_of_the_variant(): void
+    {
+        [, $second] = $this->addOptions($this->ps5Variant, ['A' => 1000000, 'B' => 1500000]);
+
+        $this->checkout([['slug' => $this->game->slug, 'option_id' => $second->id]], extra: ['console' => 'ps5'])
+            ->assertCreated()
+            ->assertJsonPath('data.amount', 1500000);
+    }
+
+    public function test_one_variant_cannot_get_two_different_options(): void
+    {
+        [$first, $second] = $this->addOptions($this->ps5Variant, ['A' => 1000000, 'B' => 1500000]);
 
         $this->checkout([
-            ['variantId' => $this->variant->id],
-            ['variantId' => $withoutOptions->id, 'option_ids' => []],
+            ['variantId' => $this->ps5Variant->id, 'option_id' => $first->id],
+            ['variantId' => $this->ps5Variant->id, 'option_id' => $second->id],
+        ])
+            ->assertUnprocessable()
+            ->assertJsonPath('error', 'برای یک بازی نمی‌توان دو گزینه‌ی قیمت متفاوت انتخاب کرد.');
+
+        $this->assertNothingWasCharged();
+    }
+
+    public function test_an_option_for_an_unknown_item_is_rejected(): void
+    {
+        [$first] = $this->addOptions($this->ps5Variant, ['A' => 1000000]);
+
+        $this->checkout([
+            ['variantId' => $this->ps5Variant->id],
+            ['variantId' => 999999, 'option_id' => $first->id],
+        ])->assertUnprocessable();
+
+        $this->assertNothingWasCharged();
+    }
+
+    public function test_option_id_must_be_an_integer(): void
+    {
+        $this->checkout([['variantId' => $this->ps5Variant->id, 'option_id' => 'abc']])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('items.0.option_id');
+    }
+
+    public function test_order_total_sums_the_options_chosen_for_each_game(): void
+    {
+        [, $second] = $this->addOptions($this->ps5Variant, ['A' => 1000000, 'B' => 1500000]);
+        $otherGame = Game::create(['title' => 'Other', 'genre' => 'Action', 'is_available' => true]);
+        $otherVariant = $otherGame->variants()->create(['platform_id' => $this->ps5->id, 'price' => 1000, 'size' => 1, 'is_available' => true]);
+        [$otherFirst, $otherSecond] = $this->addOptions($otherVariant, ['X' => 300000, 'Y' => 450000]);
+
+        $response = $this->checkout([
+            ['variantId' => $this->ps5Variant->id, 'option_id' => $second->id],
+            ['variantId' => $otherVariant->id, 'option_id' => $otherSecond->id],
         ])
             ->assertCreated()
-            ->assertJsonPath('data.order.items.0.selected_options', [])
-            ->assertJsonPath('data.order.items.1.selected_options', []);
+            ->assertJsonPath('data.amount', 1950000);
 
-        $this->actingAs($this->customer)
-            ->postJson(route('api.orders.checkout'), ['method' => 'wallet', 'variants' => [$this->variant->id]])
-            ->assertCreated()
-            ->assertJsonPath('data.order.items.0.selected_options', []);
+        $this->assertEquals(8050000, $this->walletBalance());
+
+        $order = Order::findOrFail($response->json('data.order_id'));
+        $this->assertEquals((float) $order->items()->sum('price'), (float) $order->total);
+        $this->assertNotSame($otherFirst->id, $order->items()->where('game_id', $otherGame->id)->sole()->selectedOption->game_variant_option_id);
     }
 
-    public function test_past_orders_keep_the_label_after_the_option_is_edited_or_deleted(): void
+    public function test_later_changes_never_alter_a_past_order(): void
     {
-        $option = $this->addOption('A');
-        $orderId = $this->checkout([['variantId' => $this->variant->id, 'option_ids' => [$option->id]]])->json('data.order_id');
+        [$first] = $this->addOptions($this->ps5Variant, ['A' => 1000000]);
+        $orderId = $this->checkout([['variantId' => $this->ps5Variant->id, 'option_id' => $first->id]])->json('data.order_id');
 
-        $this->updateOptions([['id' => $option->id, 'label' => 'A edited']])->assertOk();
+        $this->savePs5Options([['id' => $first->id, 'label' => 'A edited', 'price' => 5000000]])->assertOk();
+
+        $expected = ['id' => $first->id, 'label' => 'A', 'price' => 1000000];
+
+        foreach ([
+            [$this->actingAs($this->customer)->getJson(route('api.orders.index')), 'data.0'],
+            [$this->actingAs($this->customer)->getJson(route('api.orders.show', $orderId)), 'data'],
+            [$this->actingAs($this->admin)->getJson(route('api.admin.orders')), 'data.data.0'],
+            [$this->actingAs($this->admin)->getJson(route('api.admin.orders.show', $orderId)), 'data'],
+        ] as [$response, $path]) {
+            $response->assertOk()
+                ->assertJsonPath("{$path}.total", 1000000)
+                ->assertJsonPath("{$path}.items.0.price", 1000000)
+                ->assertJsonPath("{$path}.items.0.selected_option", $expected);
+        }
+
+        $this->ps5Variant->options()->delete();
+
         $this->actingAs($this->customer)
             ->getJson(route('api.orders.show', $orderId))
-            ->assertJsonPath('data.items.0.selected_options', [['id' => $option->id, 'label' => 'A']]);
-
-        $option->delete();
-        $this->actingAs($this->customer)
-            ->getJson(route('api.orders.show', $orderId))
-            ->assertJsonPath('data.items.0.selected_options', [['id' => null, 'label' => 'A']]);
+            ->assertJsonPath('data.items.0.selected_option', ['id' => null, 'label' => 'A', 'price' => 1000000]);
     }
 
-    public function test_options_survive_when_checkout_swaps_the_variant_for_the_chosen_console(): void
+    public function test_a_variant_without_options_works_as_before(): void
     {
-        $option = $this->addOption('A');
-        $otherPlatform = Platform::firstOrCreate(['slug' => 'ps4'], ['name' => 'PlayStation 4']);
-        $otherVariant = $this->game->variants()->create(['platform_id' => $otherPlatform->id, 'price' => 500000, 'size' => 40, 'is_available' => true]);
-
-        $this->checkout([['variantId' => $otherVariant->id, 'option_ids' => [$option->id]]], extra: ['console' => 'ps5'])
+        $this->checkout([['variantId' => $this->ps5Variant->id]])
             ->assertCreated()
-            ->assertJsonPath('data.order.items.0.variant_id', $this->variant->id)
-            ->assertJsonPath('data.order.items.0.selected_options', [['id' => $option->id, 'label' => 'A']]);
+            ->assertJsonPath('data.amount', 700000)
+            ->assertJsonPath('data.order.items.0.price', 700000)
+            ->assertJsonPath('data.order.items.0.selected_option', null);
+
+        $this->assertDatabaseCount('order_item_options', 0);
     }
 
-    public function test_options_work_when_the_item_references_the_game_instead_of_a_variant(): void
+    public function test_the_service_rejects_a_wrong_amount_on_the_gateway_path(): void
     {
-        $option = $this->addOption('A');
+        [, $second] = $this->addOptions($this->ps5Variant, ['A' => 1000000, 'B' => 1500000]);
 
-        $this->checkout([['slug' => $this->game->slug, 'option_ids' => [$option->id]]], extra: ['console' => 'ps5'])
-            ->assertCreated()
-            ->assertJsonPath('data.order.items.0.selected_options', [['id' => $option->id, 'label' => 'A']]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('The checkout total has changed');
+
+        try {
+            app(CheckoutService::class)->createGatewayPayment(
+                $this->customer,
+                ['console_type' => 'PlayStation 5'],
+                [$this->ps5Variant->id],
+                1000000,
+                [$this->ps5Variant->id => $second->id]
+            );
+        } finally {
+            $this->assertDatabaseCount('payments', 0);
+        }
     }
 }

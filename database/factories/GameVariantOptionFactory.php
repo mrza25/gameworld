@@ -2,25 +2,25 @@
 
 namespace Database\Factories;
 
-use App\Models\Game;
-use App\Models\GameOption;
+use App\Models\GameVariantOption;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends Factory<GameOption>
+ * @extends Factory<GameVariantOption>
  */
-class GameOptionFactory extends Factory
+class GameVariantOptionFactory extends Factory
 {
     /**
-     * Define the model's default state.
+     * Define the model's default state. Create it through a variant, e.g.
+     * `$variant->options()->save(GameVariantOption::factory()->make())`.
      *
      * @return array<string, mixed>
      */
     public function definition(): array
     {
         return [
-            'game_id' => Game::factory(),
             'label' => fake()->unique()->words(2, true),
+            'price' => fake()->numberBetween(100, 5000) * 1000,
             'sort_order' => 0,
             'is_active' => true,
         ];

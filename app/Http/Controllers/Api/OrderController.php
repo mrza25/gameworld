@@ -14,6 +14,7 @@ use App\Services\CheckoutService;
 use App\Services\OrderCancellationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -35,7 +36,7 @@ class OrderController extends Controller
     {
         $query = $request->user()
             ->orders()
-            ->with(['items.game', 'items.gameVariant.platform', 'items.selectedOptions', 'payments'])
+            ->with(['items.game', 'items.gameVariant.platform', 'items.selectedOption', 'payments'])
             ->latest()
             ->orderByDesc('id');
 
@@ -73,7 +74,7 @@ class OrderController extends Controller
             : $request->user()->orders();
 
         $order = $query
-            ->with(['items.game', 'items.gameVariant.platform', 'items.selectedOptions', 'payments'])
+            ->with(['items.game', 'items.gameVariant.platform', 'items.selectedOption', 'payments'])
             ->findOrFail(Order::idFromReference($id));
 
         $orderData = $this->transformOrder($order);
@@ -147,17 +148,14 @@ class OrderController extends Controller
             'variants.*' => ['integer', 'exists:game_variants,id'],
             'items' => ['nullable', 'array', 'min:1'],
             'items.*.quantity' => ['nullable', 'integer', 'min:1', 'max:1'],
-            'items.*.option_ids' => ['nullable', 'array', 'max:6'],
-            'items.*.option_ids.*' => ['integer'],
+            'items.*.option_id' => ['nullable', 'integer'],
             'games' => ['nullable', 'array', 'min:1'],
             'games.*' => ['nullable'],
             'coupon_code' => ['nullable', 'string', 'max:50'],
         ], [
             'method.in' => 'روش پرداخت باید کیف پول یا درگاه بانکی باشد.',
             'items.*.quantity.max' => 'هر بازی فقط یک بار روی کنسول نصب می‌شود؛ تعداد باید ۱ باشد.',
-            'items.*.option_ids.array' => 'گزینه‌های انتخابی باید به صورت لیست ارسال شوند.',
-            'items.*.option_ids.max' => 'هر بازی حداکثر ۶ گزینه دارد.',
-            'items.*.option_ids.*.integer' => 'شناسه‌ی گزینه معتبر نیست.',
+            'items.*.option_id.integer' => 'شناسه‌ی گزینه معتبر نیست.',
         ]);
 
         if (! empty($validated['coupon_code'])) {
@@ -189,8 +187,6 @@ class OrderController extends Controller
                 }
             }
         }
-
-        $optionIdsByGame = $this->selectedOptionIdsByGame($request->input('items'));
 
         $platform = $this->resolveCheckoutPlatform($validated['console'] ?? null, $rawVariantIds);
 
@@ -230,11 +226,7 @@ class OrderController extends Controller
 
         $variantIds = [];
         foreach ($requestedVariants as $v) {
-            if ($v->platform_id === $platform->id || $platform->slug === 'other') {
-                $variantIds[] = $v->id;
-            } else {
-                $variantIds[] = $platformVariantIdsByGame[$v->game_id] ?? $v->id;
-            }
+            $variantIds[] = $this->finalVariantId($v, $platform, $platformVariantIdsByGame);
         }
         $variantIds = array_values(array_unique($variantIds));
 
@@ -245,7 +237,7 @@ class OrderController extends Controller
             ], 422);
         }
 
-        $variants = GameVariant::with('platform')
+        $variants = GameVariant::with(['game', 'platform', 'activeOptions'])
             ->whereIn('id', $variantIds)
             ->where('is_available', true)
             ->get();
@@ -267,7 +259,20 @@ class OrderController extends Controller
             }
         }
 
-        $totalCents = $variants->sum(fn (GameVariant $v) => (int) round((float) $v->price * 100));
+        try {
+            $optionIdsByVariant = $this->selectedOptionIdsByVariant($request->input('items'), $requestedVariants, $platform, $platformVariantIdsByGame);
+
+            // The price of the chosen option, not of the variant: this decides what the wallet is charged.
+            $totalCents = $variants->sum(fn (GameVariant $v) => (int) round(
+                $v->priceWith($v->resolveOption($optionIdsByVariant[$v->id] ?? null)) * 100
+            ));
+        } catch (RuntimeException $e) {
+            return response()->json([
+                'ok' => false,
+                'error' => $this->publicErrorMessage($e),
+            ], 422);
+        }
+
         $total = $totalCents / 100;
 
         $validated['method'] ??= (float) ($request->user()->wallet?->balance ?? 0) >= $total ? 'wallet' : 'gateway';
@@ -283,10 +288,10 @@ class OrderController extends Controller
                     ],
                     $variantIds,
                     $total,
-                    $optionIdsByGame
+                    $optionIdsByVariant
                 );
 
-                $orderData = $this->transformOrder($order->fresh(['items.game', 'items.gameVariant.platform', 'items.selectedOptions']));
+                $orderData = $this->transformOrder($order->fresh(['items.game', 'items.gameVariant.platform', 'items.selectedOption']));
                 $message = 'پرداخت با موفقیت انجام شد و سفارش شما ثبت گردید.';
 
                 return response()->json([
@@ -325,7 +330,7 @@ class OrderController extends Controller
                 ],
                 $variantIds,
                 $total,
-                $optionIdsByGame
+                $optionIdsByVariant
             );
 
             $callbackUrl = route('api.orders.callback', [
@@ -395,7 +400,7 @@ class OrderController extends Controller
         $frontendUrl = config('app.frontend_url');
 
         if ($payment->status === PaymentStatus::Paid && $payment->order_id && $payment->matchesTransaction($request->string('transaction_id')->toString())) {
-            $order = Order::with(['items.game', 'items.gameVariant.platform', 'items.selectedOptions'])->find($payment->order_id);
+            $order = Order::with(['items.game', 'items.gameVariant.platform', 'items.selectedOption'])->find($payment->order_id);
             $redirectUrl = "{$frontendUrl}/my/orders?payment=success&order_id={$payment->order_id}";
 
             if (! $request->wantsJson()) {
@@ -432,7 +437,7 @@ class OrderController extends Controller
             return response()->json([
                 'ok' => true,
                 'order_id' => $order->id,
-                'order' => $this->transformOrder($order->fresh(['items.game', 'items.gameVariant.platform', 'items.selectedOptions'])),
+                'order' => $this->transformOrder($order->fresh(['items.game', 'items.gameVariant.platform', 'items.selectedOption'])),
                 'redirect_url' => $redirectUrl,
                 'message' => 'پرداخت تأیید شد و سفارش شما ثبت گردید.',
             ]);
@@ -498,38 +503,64 @@ class OrderController extends Controller
     }
 
     /**
-     * The options ticked in `items[].option_ids`, keyed by game rather than by
-     * variant: checkout may swap a variant for the same game's variant on the
-     * chosen console, and options belong to the game either way.
+     * The variant actually sold for a requested one: the same game's variant on
+     * the chosen console, when there is one.
      *
-     * @return array<int, array<int, int>>
+     * @param  Collection<int, int>  $platformVariantIdsByGame
      */
-    private function selectedOptionIdsByGame(mixed $items): array
+    private function finalVariantId(GameVariant $requested, Platform $platform, Collection $platformVariantIdsByGame): int
     {
-        $optionIdsByGame = [];
+        if ($requested->platform_id === $platform->id || $platform->slug === 'other') {
+            return $requested->id;
+        }
+
+        return $platformVariantIdsByGame[$requested->game_id] ?? $requested->id;
+    }
+
+    /**
+     * The options chosen in `items[].option_id`, keyed by the final variant, so
+     * that an option of a swapped-out variant is rejected rather than guessed at.
+     *
+     * @param  Collection<int, GameVariant>  $requestedVariants
+     * @param  Collection<int, int>  $platformVariantIdsByGame
+     * @return array<int, int>
+     *
+     * @throws RuntimeException when an option has no item to apply to, or one variant gets two options
+     */
+    private function selectedOptionIdsByVariant(mixed $items, Collection $requestedVariants, Platform $platform, Collection $platformVariantIdsByGame): array
+    {
+        $optionIdsByVariant = [];
 
         foreach (is_array($items) ? $items : [] as $item) {
-            if (! is_array($item) || empty($item['option_ids'])) {
+            if (! is_array($item) || ($item['option_id'] ?? null) === null) {
                 continue;
             }
 
-            $variantId = $this->itemVariantId($item);
+            $requested = $requestedVariants->firstWhere('id', $this->itemVariantId($item));
             $gameReference = $this->itemGameReference($item);
 
-            $gameId = $variantId !== null ? GameVariant::whereKey($variantId)->value('game_id') : null;
-            $gameId ??= $gameReference !== null
-                ? Game::where('slug', $gameReference)->orWhere('id', is_numeric($gameReference) ? (int) $gameReference : 0)->value('id')
-                : null;
+            $variantId = match (true) {
+                $requested !== null => $this->finalVariantId($requested, $platform, $platformVariantIdsByGame),
+                $gameReference !== null => $platformVariantIdsByGame[
+                    Game::where('slug', $gameReference)->orWhere('id', is_numeric($gameReference) ? (int) $gameReference : 0)->value('id')
+                ] ?? null,
+                default => null,
+            };
 
-            if ($gameId !== null) {
-                $optionIdsByGame[$gameId] = array_values(array_unique(array_map(
-                    'intval',
-                    [...($optionIdsByGame[$gameId] ?? []), ...$item['option_ids']]
-                )));
+            if ($variantId === null) {
+                throw new RuntimeException('گزینه‌ی قیمت برای بازی نامعتبری ارسال شده است.');
             }
+
+            $optionId = (int) $item['option_id'];
+
+            if (($optionIdsByVariant[$variantId] ?? $optionId) !== $optionId) {
+                throw new RuntimeException('برای یک بازی نمی‌توان دو گزینه‌ی قیمت متفاوت انتخاب کرد.');
+            }
+
+            $optionIdsByVariant[$variantId] = $optionId;
         }
 
-        return $optionIdsByGame;
+        return $optionIdsByVariant;
     }
 
     private function transformOrder(Order $order): array

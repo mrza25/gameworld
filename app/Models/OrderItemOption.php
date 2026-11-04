@@ -6,8 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * An option the customer ticked for an order item. The label is copied at
- * order time, so editing or removing the option never changes past orders.
+ * The price row a customer chose for an order item. Its label and price are
+ * copied at order time, so later edits never change past orders.
  */
 class OrderItemOption extends Model
 {
@@ -15,17 +15,25 @@ class OrderItemOption extends Model
 
     protected $fillable = [
         'order_item_id',
-        'game_option_id',
+        'game_variant_option_id',
         'label',
+        'price',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'price' => 'decimal:2',
+        ];
+    }
 
     public function orderItem(): BelongsTo
     {
         return $this->belongsTo(OrderItem::class);
     }
 
-    public function gameOption(): BelongsTo
+    public function gameVariantOption(): BelongsTo
     {
-        return $this->belongsTo(GameOption::class);
+        return $this->belongsTo(GameVariantOption::class);
     }
 }
