@@ -162,6 +162,7 @@ Route::middleware(['auth:sanctum', AdminMiddleware::class])
         Route::get('/games/{id}', [AdminController::class, 'gameDetail'])->name('api.admin.games.show');
         Route::post('/games', [AdminController::class, 'storeGame'])->name('api.admin.games.store');
         Route::match(['put', 'patch', 'post'], '/games/{id}', [AdminController::class, 'updateGame'])->name('api.admin.games.update');
+        Route::patch('/games/{id}/pin', [AdminController::class, 'pinGame'])->name('api.admin.games.pin');
         Route::post('/games/{id}/screenshots', [AdminController::class, 'uploadScreenshots'])->name('api.admin.games.screenshots');
         Route::delete('/games/{id}', [AdminController::class, 'deleteGame'])->name('api.admin.games.delete');
 

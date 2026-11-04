@@ -39,13 +39,82 @@ class Game extends Model
         return $this->hasMany(GameRating::class);
     }
 
+    public function options(): HasMany
+    {
+        return $this->hasMany(GameOption::class)->orderBy('sort_order')->orderBy('id');
+    }
+
+    /**
+     * Pinned games first, the most recently pinned on top. Apply it before the
+     * list's own sort, which then orders the rest.
+     */
+    public function scopePinnedFirst(Builder $query): Builder
+    {
+        return $query->orderByDesc('is_pinned')->orderByDesc('pinned_at');
+    }
+
+    /**
+     * Pin or unpin the game (without saving). Pinning an already pinned game
+     * keeps its pinned_at, so re-saving the game form does not reorder the list.
+     */
+    public function setPinned(bool $pinned): void
+    {
+        if ($pinned === (bool) $this->is_pinned) {
+            return;
+        }
+
+        $this->is_pinned = $pinned;
+        $this->pinned_at = $pinned ? now() : null;
+    }
+
+    /**
+     * Replace the game's options with the given list, in that order.
+     *
+     * An option with an id is edited. One without an id takes over an unlisted
+     * option with the same label, so re-sending a list keeps its ids; otherwise
+     * it is created. Unlisted options are deactivated rather than deleted, so
+     * payments in progress and past orders keep pointing at them.
+     *
+     * @param  array<int, array{id?: int|string|null, label: string}>  $options
+     */
+    public function syncOptions(array $options): void
+    {
+        $existing = $this->options()->get();
+        $listedIds = collect($options)->pluck('id')->filter()->map(fn ($id) => (int) $id);
+
+        $reusableByLabel = $existing
+            ->whereNotIn('id', $listedIds)
+            ->sortBy('is_active')
+            ->keyBy(fn (GameOption $option) => mb_strtolower($option->label));
+
+        $keptIds = [];
+
+        foreach (array_values($options) as $position => $option) {
+            $gameOption = empty($option['id'])
+                ? $reusableByLabel->pull(mb_strtolower($option['label']))
+                : $existing->firstWhere('id', (int) $option['id']);
+
+            $gameOption ??= new GameOption(['game_id' => $this->id]);
+            $gameOption->fill([
+                'label' => $option['label'],
+                'sort_order' => $position,
+                'is_active' => true,
+            ])->save();
+
+            $keptIds[] = $gameOption->id;
+        }
+
+        $this->options()->whereNotIn('id', $keptIds)->update(['is_active' => false]);
+        $this->unsetRelation('options');
+    }
+
     /**
      * Preload the aggregates used by toCatalogArray() so listing many games
      * does not run several extra queries per game.
      */
     public function scopeWithCatalogStats(Builder $query, ?User $user = null): Builder
     {
-        $query->with(['variants.platform'])
+        $query->with(['variants.platform', 'options'])
             ->withAvg('ratings', 'rating')
             ->withCount(['ratings', 'orderItems']);
 
@@ -87,6 +156,8 @@ class Game extends Model
         'release_date' => 'date',
         'age_rating' => 'integer',
         'is_available' => 'boolean',
+        'is_pinned' => 'boolean',
+        'pinned_at' => 'datetime',
         'modes' => 'array',
         'languages' => 'array',
         'screenshots' => 'array',
@@ -98,6 +169,7 @@ class Game extends Model
         'size' => 0,
         'price' => 0,
         'is_available' => true,
+        'is_pinned' => false,
     ];
 
     protected static function booted(): void
@@ -267,6 +339,12 @@ class Game extends Model
             'age_rating' => (int) ($this->age_rating ?? 16),
             'available' => (bool) $this->is_available,
             'is_available' => (bool) $this->is_available,
+            'is_pinned' => (bool) $this->is_pinned,
+            'options' => $this->options
+                ->where('is_active', true)
+                ->map(fn (GameOption $option) => ['id' => $option->id, 'label' => $option->label])
+                ->values()
+                ->all(),
             'description' => $this->description ?? '',
             'rate' => (float) $rate,
             'ratingCount' => (int) $count,

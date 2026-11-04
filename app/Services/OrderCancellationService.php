@@ -58,7 +58,7 @@ class OrderCancellationService
 
             $order->user?->notify(new OrderStatusUpdated($order));
 
-            return $order->fresh(['items.game', 'items.gameVariant.platform', 'payments', 'user']);
+            return $order->fresh(['items.game', 'items.gameVariant.platform', 'items.selectedOptions', 'payments', 'user']);
         });
     }
 }

@@ -35,7 +35,7 @@ class OrderController extends Controller
     {
         $query = $request->user()
             ->orders()
-            ->with(['items.game', 'items.gameVariant.platform', 'payments'])
+            ->with(['items.game', 'items.gameVariant.platform', 'items.selectedOptions', 'payments'])
             ->latest()
             ->orderByDesc('id');
 
@@ -73,7 +73,7 @@ class OrderController extends Controller
             : $request->user()->orders();
 
         $order = $query
-            ->with(['items.game', 'items.gameVariant.platform', 'payments'])
+            ->with(['items.game', 'items.gameVariant.platform', 'items.selectedOptions', 'payments'])
             ->findOrFail(Order::idFromReference($id));
 
         $orderData = $this->transformOrder($order);
@@ -147,12 +147,17 @@ class OrderController extends Controller
             'variants.*' => ['integer', 'exists:game_variants,id'],
             'items' => ['nullable', 'array', 'min:1'],
             'items.*.quantity' => ['nullable', 'integer', 'min:1', 'max:1'],
+            'items.*.option_ids' => ['nullable', 'array', 'max:6'],
+            'items.*.option_ids.*' => ['integer'],
             'games' => ['nullable', 'array', 'min:1'],
             'games.*' => ['nullable'],
             'coupon_code' => ['nullable', 'string', 'max:50'],
         ], [
             'method.in' => 'روش پرداخت باید کیف پول یا درگاه بانکی باشد.',
             'items.*.quantity.max' => 'هر بازی فقط یک بار روی کنسول نصب می‌شود؛ تعداد باید ۱ باشد.',
+            'items.*.option_ids.array' => 'گزینه‌های انتخابی باید به صورت لیست ارسال شوند.',
+            'items.*.option_ids.max' => 'هر بازی حداکثر ۶ گزینه دارد.',
+            'items.*.option_ids.*.integer' => 'شناسه‌ی گزینه معتبر نیست.',
         ]);
 
         if (! empty($validated['coupon_code'])) {
@@ -172,28 +177,20 @@ class OrderController extends Controller
                 } elseif (is_string($item)) {
                     $gameSlugs[] = $item;
                 } elseif (is_array($item)) {
-                    if (! empty($item['variantId'])) {
-                        $rawVariantIds[] = (int) $item['variantId'];
-                    } elseif (! empty($item['variant_id'])) {
-                        $rawVariantIds[] = (int) $item['variant_id'];
-                    } elseif (! empty($item['id'])) {
-                        $rawVariantIds[] = (int) $item['id'];
+                    $variantId = $this->itemVariantId($item);
+                    if ($variantId !== null) {
+                        $rawVariantIds[] = $variantId;
                     }
 
-                    if (! empty($item['gameId'])) {
-                        $gameSlugs[] = (string) $item['gameId'];
-                    } elseif (! empty($item['game_id'])) {
-                        $gameSlugs[] = (string) $item['game_id'];
-                    } elseif (! empty($item['slug'])) {
-                        $gameSlugs[] = (string) $item['slug'];
-                    } elseif (! empty($item['game']['id'])) {
-                        $gameSlugs[] = (string) $item['game']['id'];
-                    } elseif (! empty($item['game']['slug'])) {
-                        $gameSlugs[] = (string) $item['game']['slug'];
+                    $gameReference = $this->itemGameReference($item);
+                    if ($gameReference !== null) {
+                        $gameSlugs[] = $gameReference;
                     }
                 }
             }
         }
+
+        $optionIdsByGame = $this->selectedOptionIdsByGame($request->input('items'));
 
         $platform = $this->resolveCheckoutPlatform($validated['console'] ?? null, $rawVariantIds);
 
@@ -285,10 +282,11 @@ class OrderController extends Controller
                         'console_note' => $validated['console_note'] ?? null,
                     ],
                     $variantIds,
-                    $total
+                    $total,
+                    $optionIdsByGame
                 );
 
-                $orderData = $this->transformOrder($order->fresh(['items.game', 'items.gameVariant.platform']));
+                $orderData = $this->transformOrder($order->fresh(['items.game', 'items.gameVariant.platform', 'items.selectedOptions']));
                 $message = 'پرداخت با موفقیت انجام شد و سفارش شما ثبت گردید.';
 
                 return response()->json([
@@ -326,7 +324,8 @@ class OrderController extends Controller
                     'console_note' => $validated['console_note'] ?? null,
                 ],
                 $variantIds,
-                $total
+                $total,
+                $optionIdsByGame
             );
 
             $callbackUrl = route('api.orders.callback', [
@@ -396,7 +395,7 @@ class OrderController extends Controller
         $frontendUrl = config('app.frontend_url');
 
         if ($payment->status === PaymentStatus::Paid && $payment->order_id && $payment->matchesTransaction($request->string('transaction_id')->toString())) {
-            $order = Order::with(['items.game', 'items.gameVariant.platform'])->find($payment->order_id);
+            $order = Order::with(['items.game', 'items.gameVariant.platform', 'items.selectedOptions'])->find($payment->order_id);
             $redirectUrl = "{$frontendUrl}/my/orders?payment=success&order_id={$payment->order_id}";
 
             if (! $request->wantsJson()) {
@@ -433,7 +432,7 @@ class OrderController extends Controller
             return response()->json([
                 'ok' => true,
                 'order_id' => $order->id,
-                'order' => $this->transformOrder($order->fresh(['items.game', 'items.gameVariant.platform'])),
+                'order' => $this->transformOrder($order->fresh(['items.game', 'items.gameVariant.platform', 'items.selectedOptions'])),
                 'redirect_url' => $redirectUrl,
                 'message' => 'پرداخت تأیید شد و سفارش شما ثبت گردید.',
             ]);
@@ -472,6 +471,65 @@ class OrderController extends Controller
             ->pluck('platform_id');
 
         return $platformIds->count() === 1 ? Platform::find($platformIds->first()) : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $item
+     */
+    private function itemVariantId(array $item): ?int
+    {
+        $variantId = ($item['variantId'] ?? null) ?: ($item['variant_id'] ?? null) ?: ($item['id'] ?? null);
+
+        return $variantId ? (int) $variantId : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $item
+     */
+    private function itemGameReference(array $item): ?string
+    {
+        $reference = ($item['gameId'] ?? null)
+            ?: ($item['game_id'] ?? null)
+            ?: ($item['slug'] ?? null)
+            ?: ($item['game']['id'] ?? null)
+            ?: ($item['game']['slug'] ?? null);
+
+        return $reference ? (string) $reference : null;
+    }
+
+    /**
+     * The options ticked in `items[].option_ids`, keyed by game rather than by
+     * variant: checkout may swap a variant for the same game's variant on the
+     * chosen console, and options belong to the game either way.
+     *
+     * @return array<int, array<int, int>>
+     */
+    private function selectedOptionIdsByGame(mixed $items): array
+    {
+        $optionIdsByGame = [];
+
+        foreach (is_array($items) ? $items : [] as $item) {
+            if (! is_array($item) || empty($item['option_ids'])) {
+                continue;
+            }
+
+            $variantId = $this->itemVariantId($item);
+            $gameReference = $this->itemGameReference($item);
+
+            $gameId = $variantId !== null ? GameVariant::whereKey($variantId)->value('game_id') : null;
+            $gameId ??= $gameReference !== null
+                ? Game::where('slug', $gameReference)->orWhere('id', is_numeric($gameReference) ? (int) $gameReference : 0)->value('id')
+                : null;
+
+            if ($gameId !== null) {
+                $optionIdsByGame[$gameId] = array_values(array_unique(array_map(
+                    'intval',
+                    [...($optionIdsByGame[$gameId] ?? []), ...$item['option_ids']]
+                )));
+            }
+        }
+
+        return $optionIdsByGame;
     }
 
     private function transformOrder(Order $order): array

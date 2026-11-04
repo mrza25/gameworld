@@ -78,7 +78,7 @@ class AdminController extends Controller
      */
     public function orders(Request $request): JsonResponse
     {
-        $query = Order::with(['user', 'items.game', 'items.gameVariant.platform', 'payments'])->latest()->orderByDesc('id');
+        $query = Order::with(['user', 'items.game', 'items.gameVariant.platform', 'items.selectedOptions', 'payments'])->latest()->orderByDesc('id');
 
         foreach (['statusRaw' => 'status', 'paymentStatusRaw' => 'payment_status', 'date_from' => 'from_date', 'date_to' => 'to_date'] as $alias => $field) {
             if (! $request->filled($field) && $request->filled($alias)) {
@@ -152,7 +152,7 @@ class AdminController extends Controller
      */
     public function orderDetail(int|string $id): JsonResponse
     {
-        $order = Order::with(['user', 'items.game', 'items.gameVariant.platform', 'payments'])
+        $order = Order::with(['user', 'items.game', 'items.gameVariant.platform', 'items.selectedOptions', 'payments'])
             ->findOrFail(Order::idFromReference($id));
 
         $orderData = $this->orderWithUser($order);
@@ -229,7 +229,7 @@ class AdminController extends Controller
             $order->user?->notify(new OrderStatusUpdated($order));
         }
 
-        $orderData = $order->fresh(['user', 'items.game', 'items.gameVariant.platform', 'payments'])->toApiArray();
+        $orderData = $order->fresh(['user', 'items.game', 'items.gameVariant.platform', 'items.selectedOptions', 'payments'])->toApiArray();
 
         return response()->json([
             'ok' => true,
@@ -512,7 +512,7 @@ class AdminController extends Controller
      */
     public function games(Request $request): JsonResponse
     {
-        $query = Game::query()->withCatalogStats()->latest();
+        $query = Game::query()->withCatalogStats()->pinnedFirst()->latest();
 
         if ($request->filled('search')) {
             $q = $request->search;
@@ -566,7 +566,7 @@ class AdminController extends Controller
      */
     public function gameDetail(int|string $id): JsonResponse
     {
-        $game = Game::with(['variants.platform'])
+        $game = Game::with(['variants.platform', 'options'])
             ->where('id', is_numeric($id) ? (int) $id : 0)
             ->orWhere('slug', (string) $id)
             ->firstOrFail();
@@ -587,6 +587,7 @@ class AdminController extends Controller
     public function storeGame(Request $request): JsonResponse
     {
         $this->mergeGameFieldAliases($request);
+        $this->mergeGameOptionsInput($request);
 
         $modes = $this->decodeListInput($request->input('modes')) ?: ['تک‌نفره', 'آنلاین'];
         $languages = $this->decodeListInput($request->input('languages')) ?: ['انگلیسی', 'زیرنویس فارسی'];
@@ -627,13 +628,15 @@ class AdminController extends Controller
             'description' => ['nullable', 'string'],
             'age_rating' => ['nullable', 'integer', 'min:3', 'max:21'],
             'is_available' => ['nullable', 'boolean'],
+            'is_pinned' => ['nullable', 'boolean'],
             'variants' => ['required', 'array', 'min:1'],
             'variants.*.platform_id' => ['required', 'distinct', 'exists:platforms,id'],
             'variants.*.price' => ['required', 'numeric', 'min:0'],
             'variants.*.size' => ['required', 'numeric', 'min:0'],
             'variants.*.is_available' => ['nullable', 'boolean'],
             ...$this->gameImageRules($request),
-        ]);
+            ...$this->gameOptionRules(),
+        ], $this->gameOptionMessages());
 
         $explicitPlatform = $request->input('platform') ?? $request->input('console');
         $basePlatform = is_string($explicitPlatform) && $explicitPlatform !== ''
@@ -684,10 +687,17 @@ class AdminController extends Controller
                 ]);
             }
 
+            if (! empty($validated['options'])) {
+                $game->syncOptions($validated['options']);
+            }
+
+            $game->setPinned((bool) ($validated['is_pinned'] ?? false));
+            $game->save();
+
             return $game;
         });
 
-        $catalogData = $game->fresh(['variants.platform'])->toCatalogArray();
+        $catalogData = $game->fresh(['variants.platform', 'options'])->toCatalogArray();
 
         return response()->json([
             'ok' => true,
@@ -713,6 +723,7 @@ class AdminController extends Controller
             ->firstOrFail();
 
         $this->mergeGameFieldAliases($request);
+        $this->mergeGameOptionsInput($request);
 
         $rawVariants = $this->rawVariantsInput($request);
         $firstVariant = is_array($rawVariants[0] ?? null) ? $rawVariants[0] : [];
@@ -739,13 +750,15 @@ class AdminController extends Controller
             'description' => ['nullable', 'string'],
             'age_rating' => ['nullable', 'integer', 'min:3', 'max:21'],
             'is_available' => ['nullable', 'boolean'],
+            'is_pinned' => ['nullable', 'boolean'],
             'variants' => ['nullable', 'array'],
             'variants.*.platform_id' => ['required', 'distinct', 'exists:platforms,id'],
             'variants.*.price' => ['required', 'numeric', 'min:0'],
             'variants.*.size' => ['required', 'numeric', 'min:0'],
             'variants.*.is_available' => ['nullable', 'boolean'],
             ...$this->gameImageRules($request),
-        ]);
+            ...$this->gameOptionRules($game),
+        ], $this->gameOptionMessages());
 
         $obsoleteImage = null;
         $newImage = $this->resolveGameImageInput($request);
@@ -799,6 +812,9 @@ class AdminController extends Controller
         if (isset($validated['is_available'])) {
             $game->is_available = $validated['is_available'];
         }
+        if (isset($validated['is_pinned'])) {
+            $game->setPinned((bool) $validated['is_pinned']);
+        }
 
         if ($request->has('price') || $basePrice > 0) {
             $game->price = $basePrice;
@@ -820,6 +836,11 @@ class AdminController extends Controller
 
         DB::transaction(function () use ($game, $validated, $request) {
             $game->save();
+
+            // A missing `options` field leaves them as they are; an empty list removes them.
+            if (($validated['options'] ?? null) !== null) {
+                $game->syncOptions($validated['options']);
+            }
 
             if (! empty($validated['variants'])) {
                 $keptPlatformIds = [];
@@ -852,11 +873,40 @@ class AdminController extends Controller
 
         $this->deleteUploadedGameImage($obsoleteImage, $game->image);
 
-        $catalogData = $game->fresh(['variants.platform'])->toCatalogArray();
+        $catalogData = $game->fresh(['variants.platform', 'options'])->toCatalogArray();
 
         return response()->json([
             'ok' => true,
             'message' => 'بازی با موفقیت به‌روزرسانی شد.',
+            'data' => $catalogData,
+            'game' => $catalogData,
+            'product' => $catalogData,
+        ]);
+    }
+
+    /**
+     * Pin a game to the top of the game lists, or unpin it.
+     */
+    public function pinGame(Request $request, int|string $id): JsonResponse
+    {
+        $game = Game::where('id', is_numeric($id) ? (int) $id : 0)
+            ->orWhere('slug', (string) $id)
+            ->firstOrFail();
+
+        $request->merge(['is_pinned' => $this->toBooleanOrOriginal($request->input('is_pinned'))]);
+
+        $validated = $request->validate([
+            'is_pinned' => ['required', 'boolean'],
+        ]);
+
+        $game->setPinned((bool) $validated['is_pinned']);
+        $game->save();
+
+        $catalogData = $game->fresh(['variants.platform', 'options'])->toCatalogArray();
+
+        return response()->json([
+            'ok' => true,
+            'message' => $game->is_pinned ? 'بازی پین شد.' : 'پین بازی برداشته شد.',
             'data' => $catalogData,
             'game' => $catalogData,
             'product' => $catalogData,
@@ -1027,6 +1077,62 @@ class AdminController extends Controller
         if ($isAvailable !== null) {
             $request->merge(['is_available' => $isAvailable]);
         }
+
+        $isPinned = $this->toBooleanOrOriginal($request->input('is_pinned'));
+        if ($isPinned !== null) {
+            $request->merge(['is_pinned' => $isPinned]);
+        }
+    }
+
+    /**
+     * Normalize the `options` field before validation. It may be an array or a
+     * JSON string (multipart FormData); null means it was not sent.
+     */
+    private function mergeGameOptionsInput(Request $request): void
+    {
+        $options = $this->decodeListInput($request->input('options'));
+
+        if ($options === null) {
+            $request->merge(['options' => null]);
+
+            return;
+        }
+
+        $request->merge(['options' => array_map(function (mixed $option): array {
+            $label = is_array($option) ? ($option['label'] ?? null) : $option;
+
+            return [
+                'id' => is_array($option) ? ($option['id'] ?? null) : null,
+                'label' => is_string($label) ? trim($label) : $label,
+            ];
+        }, $options)]);
+    }
+
+    /**
+     * @return array<string, array<int, mixed>>
+     */
+    private function gameOptionRules(?Game $game = null): array
+    {
+        return [
+            'options' => ['nullable', 'array', 'max:6'],
+            'options.*.id' => ['nullable', 'integer', 'distinct', Rule::exists('game_options', 'id')->where('game_id', $game?->id ?? 0)],
+            'options.*.label' => ['required', 'string', 'max:100', 'distinct:ignore_case'],
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function gameOptionMessages(): array
+    {
+        return [
+            'options.max' => 'هر بازی حداکثر ۶ گزینه می‌تواند داشته باشد.',
+            'options.*.id.exists' => 'این گزینه متعلق به این بازی نیست.',
+            'options.*.id.distinct' => 'یک گزینه دو بار ارسال شده است.',
+            'options.*.label.required' => 'متن گزینه الزامی است.',
+            'options.*.label.max' => 'متن گزینه حداکثر ۱۰۰ کاراکتر است.',
+            'options.*.label.distinct' => 'متن گزینه‌های یک بازی نباید تکراری باشد.',
+        ];
     }
 
     /**
@@ -1361,7 +1467,7 @@ class AdminController extends Controller
      */
     private function recentOrders(): Collection
     {
-        return Order::with(['user', 'items.game', 'items.gameVariant.platform', 'payments'])
+        return Order::with(['user', 'items.game', 'items.gameVariant.platform', 'items.selectedOptions', 'payments'])
             ->latest()
             ->orderByDesc('id')
             ->take(6)

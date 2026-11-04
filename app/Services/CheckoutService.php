@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Contracts\PaymentGateway;
+use App\Models\Game;
+use App\Models\GameOption;
 use App\Models\GameVariant;
 use App\Models\Order;
 use App\Models\Payment;
@@ -32,18 +34,21 @@ class CheckoutService
         User $user,
         array $orderData,
         array $variantIds,
-        float $amount
+        float $amount,
+        array $optionIdsByGame = []
     ): Order {
         return DB::transaction(function () use (
             $user,
             $orderData,
             $variantIds,
-            $amount
+            $amount,
+            $optionIdsByGame
         ) {
             $snapshot = $this->buildCheckoutSnapshot(
                 $orderData,
                 $variantIds,
-                $amount
+                $amount,
+                $optionIdsByGame
             );
 
             $payment = $this->paymentService->createPendingPayment(
@@ -95,18 +100,21 @@ class CheckoutService
         User $user,
         array $orderData,
         array $variantIds,
-        float $amount
+        float $amount,
+        array $optionIdsByGame = []
     ): Payment {
         return DB::transaction(function () use (
             $user,
             $orderData,
             $variantIds,
-            $amount
+            $amount,
+            $optionIdsByGame
         ) {
             $snapshot = $this->buildCheckoutSnapshot(
                 $orderData,
                 $variantIds,
-                $amount
+                $amount,
+                $optionIdsByGame
             );
 
             $payment = $this->paymentService->createPendingPayment(
@@ -358,12 +366,17 @@ class CheckoutService
     }
 
     /**
-     * Build a trusted snapshot of the selected variants and their prices.
+     * Build a trusted snapshot of the selected variants, their prices and the
+     * options ticked for each game. Option labels are copied here, so a gateway
+     * payment keeps what the customer saw even if the option changes meanwhile.
+     *
+     * @param  array<int, array<int, int>>  $optionIdsByGame
      */
     private function buildCheckoutSnapshot(
         array $orderData,
         array $variantIds,
-        float $requestedAmount
+        float $requestedAmount,
+        array $optionIdsByGame = []
     ): array {
         $consoleType = $orderData['console_type'] ?? null;
 
@@ -386,7 +399,7 @@ class CheckoutService
         }
 
         $variants = GameVariant::query()
-            ->with(['game', 'platform'])
+            ->with(['game.options', 'platform'])
             ->whereIn('id', $uniqueIds)
             ->where('is_available', true)
             ->whereHas('game')
@@ -434,6 +447,10 @@ class CheckoutService
                 'game_id' => $variant->game_id,
                 'quantity' => 1,
                 'price' => number_format($price, 2, '.', ''),
+                'options' => $this->resolveSelectedOptions(
+                    $variant->game,
+                    $optionIdsByGame[$variant->game_id] ?? []
+                ),
             ];
         }
 
@@ -458,6 +475,33 @@ class CheckoutService
     }
 
     /**
+     * The ticked options of a game, in the game's own order.
+     *
+     * @param  array<int, int>  $optionIds
+     * @return list<array{id: int, label: string}>
+     */
+    private function resolveSelectedOptions(Game $game, array $optionIds): array
+    {
+        $selected = $game->options
+            ->where('is_active', true)
+            ->whereIn('id', $optionIds);
+
+        if ($selected->count() !== count(array_unique($optionIds))) {
+            throw new RuntimeException(
+                "گزینه‌ی انتخاب‌شده برای بازی «{$game->title}» معتبر نیست."
+            );
+        }
+
+        return $selected
+            ->map(fn (GameOption $option) => [
+                'id' => $option->id,
+                'label' => $option->label,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
      * Create the order using the prices saved in the payment snapshot.
      * Current variant prices are deliberately not queried here.
      */
@@ -477,13 +521,20 @@ class CheckoutService
         ]);
 
         foreach ($items as $item) {
-            $order->items()->create([
+            $orderItem = $order->items()->create([
                 'game_id' => $item['game_id'],
                 'game_variant_id' => $item['game_variant_id'],
                 'quantity' => $item['quantity'],
                 'price' => $item['price'],
                 'installation_status' => 'pending',
             ]);
+
+            $orderItem->selectedOptions()->createMany(
+                array_map(fn (array $option) => [
+                    'game_option_id' => $option['id'],
+                    'label' => $option['label'],
+                ], $item['options'] ?? [])
+            );
         }
 
         return $order;

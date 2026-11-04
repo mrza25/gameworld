@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class OrderItem extends Model
 {
@@ -38,5 +39,10 @@ class OrderItem extends Model
     public function gameVariant(): BelongsTo
     {
         return $this->belongsTo(GameVariant::class);
+    }
+
+    public function selectedOptions(): HasMany
+    {
+        return $this->hasMany(OrderItemOption::class);
     }
 }

@@ -133,7 +133,7 @@ class Order extends Model
         $statusValue = $this->status instanceof \BackedEnum ? $this->status->value : $this->status;
         $paymentValue = $this->payment_status instanceof \BackedEnum ? $this->payment_status->value : $this->payment_status;
 
-        $items = $this->relationLoaded('items') ? $this->items : $this->items()->with(['game', 'gameVariant.platform'])->get();
+        $items = $this->relationLoaded('items') ? $this->items : $this->items()->with(['game', 'gameVariant.platform', 'selectedOptions'])->get();
 
         $platform = Platform::findByNameOrSlug($this->console_type);
         $consoleSlug = $platform?->slug ?? Str::slug($this->console_type);
@@ -190,6 +190,10 @@ class Order extends Model
                 'installStatus' => $installMap[$item->installation_status] ?? $item->installation_status,
                 'installStatusRaw' => $item->installation_status,
                 'installed_at' => $item->installed_at?->format('Y-m-d H:i'),
+                'selected_options' => $item->selectedOptions
+                    ->map(fn (OrderItemOption $option) => ['id' => $option->game_option_id, 'label' => $option->label])
+                    ->values()
+                    ->all(),
             ])->values()->all(),
         ];
     }

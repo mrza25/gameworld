@@ -76,6 +76,8 @@ class ProductController extends Controller
             $query->whereRaw('(select avg(rating) from game_ratings where game_ratings.game_id = games.id) * 10 >= ?', [(int) round($minRating * 10)]);
         }
 
+        $query->pinnedFirst();
+
         match ($request->input('sort')) {
             'popular', 'sales' => $query->orderByDesc('sales'),
             'rating' => $query->orderByDesc('ratings_avg_rating')->orderByDesc('ratings_count'),
