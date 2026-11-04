@@ -426,7 +426,7 @@ class AuthController extends Controller
         $user = $request->user();
         $path = $request->file('avatar')->store('avatars', 'public');
 
-        $user->update(['avatar' => $path]);
+        $user->replaceAvatar($path);
 
         return response()->json([
             'ok' => true,

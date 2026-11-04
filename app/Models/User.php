@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
 
@@ -42,6 +43,48 @@ class User extends Authenticatable
         }
 
         return url('/images/default-avatar.png');
+    }
+
+    protected static function booted(): void
+    {
+        static::deleted(fn (User $user) => self::deleteStoredAvatar($user->getRawOriginal('avatar')));
+    }
+
+    /**
+     * Point the user at a newly stored avatar, then remove the previous file.
+     * The old file goes last, so a failed update never costs the user their picture.
+     */
+    public function replaceAvatar(string $path): void
+    {
+        $previousAvatar = $this->getRawOriginal('avatar');
+
+        $this->update(['avatar' => $path]);
+
+        self::deleteStoredAvatar($previousAvatar);
+    }
+
+    /**
+     * The public-disk path of an avatar value, or null when it is not one of our
+     * uploaded avatars (empty, an external URL, or anything outside avatars/).
+     */
+    public static function storedAvatarPath(?string $avatar): ?string
+    {
+        if (blank($avatar) || Str::startsWith($avatar, ['http://', 'https://'])) {
+            return null;
+        }
+
+        $path = ltrim($avatar, '/');
+
+        return Str::startsWith($path, 'avatars/') && ! Str::contains($path, '..') ? $path : null;
+    }
+
+    private static function deleteStoredAvatar(?string $avatar): void
+    {
+        $path = self::storedAvatarPath($avatar);
+
+        if ($path !== null) {
+            Storage::disk('public')->delete($path);
+        }
     }
 
     /**
