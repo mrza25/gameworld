@@ -98,7 +98,7 @@ class OrderController extends Controller
         } catch (RuntimeException $e) {
             return response()->json([
                 'ok' => false,
-                'error' => $e->getMessage(),
+                'error' => $this->publicErrorMessage($e),
             ], 422);
         }
 
@@ -310,7 +310,7 @@ class OrderController extends Controller
             } catch (RuntimeException $e) {
                 return response()->json([
                     'ok' => false,
-                    'error' => $e->getMessage(),
+                    'error' => $this->publicErrorMessage($e),
                 ], 422);
             }
         }
@@ -370,7 +370,7 @@ class OrderController extends Controller
         } catch (RuntimeException $e) {
             return response()->json([
                 'ok' => false,
-                'error' => $e->getMessage(),
+                'error' => $this->publicErrorMessage($e),
             ], 422);
         }
     }
@@ -437,7 +437,7 @@ class OrderController extends Controller
                 'message' => 'پرداخت تأیید شد و سفارش شما ثبت گردید.',
             ]);
         } catch (RuntimeException $e) {
-            $redirectUrl = "{$frontendUrl}/my/orders?payment=failed&error=".urlencode($e->getMessage());
+            $redirectUrl = "{$frontendUrl}/my/orders?payment=failed&error=".urlencode($this->publicErrorMessage($e));
 
             if (! $request->wantsJson()) {
                 return redirect($redirectUrl);
@@ -445,7 +445,7 @@ class OrderController extends Controller
 
             return response()->json([
                 'ok' => false,
-                'error' => $e->getMessage(),
+                'error' => $this->publicErrorMessage($e),
                 'redirect_url' => $redirectUrl,
             ], 422);
         }

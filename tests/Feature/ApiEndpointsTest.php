@@ -111,6 +111,7 @@ class ApiEndpointsTest extends TestCase
             'name' => 'Ali Reza',
             'phone' => '09120000000',
             'password' => 'secret123',
+            'code' => '12345',
         ]);
         $regRes->assertCreated()
             ->assertJson(['ok' => true])

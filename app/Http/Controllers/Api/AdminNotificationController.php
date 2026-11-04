@@ -40,7 +40,7 @@ class AdminNotificationController extends Controller
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:255'],
             'message' => ['required', 'string', 'max:2000'],
-            'link' => ['nullable', 'string', 'max:500', 'regex:#^(/|https?://)#'],
+            'link' => ['nullable', 'string', 'max:500', 'regex:#^(/(?!/)|https?://)#'],
             'audience' => ['nullable', 'in:all,users'],
             'user_id' => ['nullable', 'integer'],
             'user_ids' => ['nullable', 'array', 'max:1000'],

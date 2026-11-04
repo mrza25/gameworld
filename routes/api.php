@@ -62,7 +62,7 @@ Route::get('/banners', [CommonController::class, 'banners'])->name('api.banners'
 Route::prefix('auth')->group(function () {
     Route::post('/check-phone', [AuthController::class, 'checkPhone'])->middleware('throttle:auth')->name('api.auth.check-phone');
     Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:auth')->name('api.auth.register');
-    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:auth')->name('api.auth.login');
+    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login')->name('api.auth.login');
 
     // OTP endpoints
     Route::post('/send-otp', [AuthController::class, 'sendOtp'])->middleware('throttle:auth')->name('api.auth.send-otp');

@@ -35,10 +35,16 @@ class WalletController extends Controller
             'amount' => ['required', 'numeric', 'min:50000', 'max:50000000'],
         ]);
 
-        $payment = $checkoutService->createWalletChargePayment(
-            $request->user(),
-            (float) $validated['amount']
-        );
+        try {
+            $payment = $checkoutService->createWalletChargePayment(
+                $request->user(),
+                (float) $validated['amount']
+            );
+        } catch (\RuntimeException $e) {
+            return redirect()
+                ->route('wallet.index')
+                ->with('error', $this->publicErrorMessage($e));
+        }
 
         return redirect()->route('wallet.callback', [
             'payment' => $payment->id,
@@ -69,7 +75,7 @@ class WalletController extends Controller
         } catch (\RuntimeException $e) {
             return redirect()
                 ->route('wallet.index')
-                ->with('error', $e->getMessage());
+                ->with('error', $this->publicErrorMessage($e));
         }
 
         return redirect()

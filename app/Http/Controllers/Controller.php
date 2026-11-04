@@ -7,9 +7,26 @@ namespace App\Http\Controllers;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use RuntimeException;
 
 abstract class Controller
 {
+    /**
+     * The message of a failed business rule, which is safe to show the customer.
+     * Services throw plain RuntimeExceptions for those. Its subclasses include
+     * database errors, whose messages contain SQL, so they are reported instead.
+     */
+    protected function publicErrorMessage(RuntimeException $e): string
+    {
+        if ($e::class === RuntimeException::class) {
+            return $e->getMessage();
+        }
+
+        report($e);
+
+        return 'خطایی رخ داد. لطفاً دوباره تلاش کنید.';
+    }
+
     /**
      * Whether the payment gateway sent the customer back with a failure status,
      * e.g. `status=NOK` after they cancelled on the gateway page.

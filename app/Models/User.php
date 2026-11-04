@@ -14,6 +14,7 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class User extends Authenticatable
 {
@@ -47,7 +48,44 @@ class User extends Authenticatable
 
     protected static function booted(): void
     {
-        static::deleted(fn (User $user) => self::deleteStoredAvatar($user->getRawOriginal('avatar')));
+        static::deleted(function (User $user) {
+            self::deleteStoredAvatar($user->getRawOriginal('avatar'));
+            $user->tokens()->delete();
+        });
+    }
+
+    /**
+     * Canonical form of a phone number: Persian and Arabic digits become Latin,
+     * and Iranian numbers become 09xxxxxxxxx.
+     */
+    public static function normalizePhone(string $phone): string
+    {
+        $phone = str_replace(
+            ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹', '٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'],
+            ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+            $phone
+        );
+        $digits = (string) preg_replace('/\D/', '', $phone);
+
+        return str_starts_with($digits, '989') ? '0'.substr($digits, 2) : $digits;
+    }
+
+    /**
+     * Whether a normalized phone number is an Iranian mobile number.
+     */
+    public static function isValidMobile(string $phone): bool
+    {
+        return preg_match('/^09\d{9}$/', $phone) === 1;
+    }
+
+    /**
+     * Sign out every device, except the one using the given token if any.
+     */
+    public function revokeTokensExcept(mixed $currentToken = null): void
+    {
+        $this->tokens()
+            ->when($currentToken instanceof PersonalAccessToken, fn ($tokens) => $tokens->whereKeyNot($currentToken->getKey()))
+            ->delete();
     }
 
     /**

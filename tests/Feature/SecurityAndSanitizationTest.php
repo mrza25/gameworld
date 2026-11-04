@@ -46,6 +46,7 @@ class SecurityAndSanitizationTest extends TestCase
             'name' => 'Malicious Hacker',
             'phone' => '09129999999',
             'password' => 'password123',
+            'code' => '12345',
             'is_admin' => true,
             'role' => 'admin',
         ]);

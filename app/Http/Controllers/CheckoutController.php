@@ -30,7 +30,7 @@ class CheckoutController extends Controller
 
             return redirect()
                 ->route('orders.create')
-                ->with('error', $e->getMessage());
+                ->with('error', $this->publicErrorMessage($e));
         }
 
         $total = $this->calculateTotal($variants);
@@ -69,7 +69,7 @@ class CheckoutController extends Controller
         } catch (RuntimeException $e) {
             return redirect()
                 ->route('checkout.index')
-                ->with('error', $e->getMessage());
+                ->with('error', $this->publicErrorMessage($e));
         }
 
         $request->session()->forget('checkout');
@@ -109,7 +109,7 @@ class CheckoutController extends Controller
         } catch (RuntimeException $e) {
             return redirect()
                 ->route('checkout.index')
-                ->with('error', $e->getMessage());
+                ->with('error', $this->publicErrorMessage($e));
         }
 
         // درگاه فعلی آزمایشی است.
@@ -164,7 +164,7 @@ class CheckoutController extends Controller
         } catch (RuntimeException $e) {
             return redirect()
                 ->route('checkout.index')
-                ->with('error', $e->getMessage());
+                ->with('error', $this->publicErrorMessage($e));
         }
 
         $request->session()->forget('checkout');

@@ -6,6 +6,7 @@ namespace App\Providers;
 
 use App\Contracts\PaymentGateway;
 use App\Contracts\SmsSender;
+use App\Models\User;
 use App\Services\PaymentGateways\FakePaymentGateway;
 use App\Services\Sms\LogSmsSender;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -41,9 +42,22 @@ class AppServiceProvider extends ServiceProvider
         Model::automaticallyEagerLoadRelationships();
 
         RateLimiter::for('api', function (Request $request) {
-            $limit = app()->runningUnitTests() ? 1000 : 120;
+            $limit = app()->runningUnitTests() ? 1000 : (int) config('services.rate_limits.api_per_minute');
 
-            return Limit::perMinute($limit)->by($request->user()?->id ?: $request->ip());
+            return Limit::perMinute($limit)->by(auth('sanctum')->user()?->id ?: $request->ip());
+        });
+
+        // Password guessing is limited per phone as well as per IP, so rotating IPs does not help.
+        RateLimiter::for('login', function (Request $request) {
+            $perMinute = (int) config('services.rate_limits.login_per_minute');
+            $input = $request->input('phone') ?? $request->input('phonenumber');
+            $phone = is_string($input) ? User::normalizePhone($input) : '';
+
+            return [
+                Limit::perMinute($perMinute * 2)->by('login-ip:'.$request->ip()),
+                Limit::perMinute($perMinute)->by('login-phone:'.$phone),
+                Limit::perHour($perMinute * 6)->by('login-phone-hourly:'.$phone),
+            ];
         });
 
         RateLimiter::for('auth', function (Request $request) {

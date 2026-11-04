@@ -5,6 +5,7 @@ namespace App\Services\PaymentGateways;
 use App\Contracts\PaymentGateway;
 use App\Models\Payment;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 /**
  * Sandbox gateway: the customer pays on our own test page
@@ -16,8 +17,20 @@ class FakePaymentGateway implements PaymentGateway
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    /**
+     * Paying here costs nothing, so a live shop must never accept it.
+     */
+    public static function isEnabled(): bool
+    {
+        return ! app()->isProduction() || config('services.payment.allow_fake_gateway');
+    }
+
     public function purchase(Payment $payment): string
     {
+        if (! self::isEnabled()) {
+            throw new RuntimeException('درگاه پرداخت در حال حاضر فعال نیست.');
+        }
+
         $transactionId = 'FAKE-'.Str::upper(
             Str::random(16)
         );
@@ -53,7 +66,8 @@ class FakePaymentGateway implements PaymentGateway
         $expectedTransactionId =
             $payment->metadata['gateway_transaction_id'] ?? null;
 
-        return $expectedTransactionId === $transactionId
+        return self::isEnabled()
+            && $expectedTransactionId === $transactionId
             && ($payment->metadata['gateway_status'] ?? null) !== self::STATUS_CANCELLED;
     }
 

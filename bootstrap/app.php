@@ -3,9 +3,11 @@
 declare(strict_types=1);
 
 use App\Http\Middleware\ExtractTokenFromCookie;
+use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -20,6 +22,9 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->statefulApi();
+        $middleware->throttleApi();
+        $middleware->trustHosts();
+        $middleware->append(SecurityHeaders::class);
         $middleware->encryptCookies(except: [
             'gw_token',
         ]);
@@ -41,9 +46,11 @@ return Application::configure(basePath: dirname(__DIR__))
                 return $response;
             }
 
-            $error = $e instanceof ValidationException
-                ? collect($e->errors())->flatten()->first()
-                : ($data['message'] ?? null);
+            $error = match (true) {
+                $e instanceof ValidationException => collect($e->errors())->flatten()->first(),
+                $e instanceof ThrottleRequestsException => 'تعداد درخواست‌ها زیاد است؛ کمی بعد دوباره تلاش کنید.',
+                default => $data['message'] ?? null,
+            };
 
             return $response->setData(['ok' => false, 'error' => $error ?: 'خطایی رخ داد.'] + $data);
         });

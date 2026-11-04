@@ -102,7 +102,7 @@ class AdminUserLookupTest extends TestCase
 
     public function test_passwords_need_at_least_eight_characters(): void
     {
-        $this->postJson(route('api.auth.register'), ['name' => 'Reza', 'phone' => '09125556677', 'password' => 'short12'])
+        $this->postJson(route('api.auth.register'), ['name' => 'Reza', 'phone' => '09125556677', 'password' => 'short12', 'code' => '12345'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('password');
 
@@ -111,7 +111,7 @@ class AdminUserLookupTest extends TestCase
             ->assertUnprocessable()
             ->assertJsonValidationErrors('password');
 
-        $this->postJson(route('api.auth.register'), ['name' => 'Reza', 'phone' => '09125556677', 'password' => 'long-enough'])
+        $this->postJson(route('api.auth.register'), ['name' => 'Reza', 'phone' => '09125556677', 'password' => 'long-enough', 'code' => '12345'])
             ->assertCreated();
     }
 }

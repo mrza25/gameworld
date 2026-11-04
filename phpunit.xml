@@ -20,6 +20,9 @@
     <php>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="OTP_RESEND_COOLDOWN" value="0"/>
+        <env name="OTP_HOURLY_LIMIT" value="1000"/>
+        <env name="LOGIN_ATTEMPTS_PER_MINUTE" value="1000"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="CACHE_STORE" value="array"/>
         <env name="DB_CONNECTION" value="sqlite"/>

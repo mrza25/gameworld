@@ -17,6 +17,7 @@ class UserEmailTest extends TestCase
             'phone' => '09121234567',
             'email' => 'ali@example.com',
             'password' => 'secret123',
+            'code' => '12345',
         ])->assertCreated()->assertJsonPath('user.email', 'ali@example.com')->json('token');
 
         $this->withToken($token)->getJson(route('api.auth.me'))->assertJsonPath('user.email', 'ali@example.com');
@@ -26,7 +27,7 @@ class UserEmailTest extends TestCase
             ->assertJsonPath('user.email', 'ali.new@example.com');
 
         $this->postJson(route('api.auth.register'), [
-            'name' => 'Reza', 'phone' => '09127654321', 'password' => 'secret123',
+            'name' => 'Reza', 'phone' => '09127654321', 'password' => 'secret123', 'code' => '12345',
         ])->assertCreated()->assertJsonPath('user.email', null);
     }
 

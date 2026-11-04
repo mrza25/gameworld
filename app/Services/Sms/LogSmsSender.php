@@ -13,6 +13,13 @@ class LogSmsSender implements SmsSender
 {
     public function send(string $phone, string $message): void
     {
+        // Messages hold login codes, which must not end up in a live server's logs.
+        if (app()->isProduction()) {
+            Log::error('SMS not sent: no SMS provider is configured.');
+
+            return;
+        }
+
         Log::info("SMS to {$phone}: {$message}");
     }
 }

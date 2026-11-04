@@ -76,6 +76,7 @@ class FakeGatewayController extends Controller
 
         if (
             ! $gateway instanceof FakePaymentGateway ||
+            ! FakePaymentGateway::isEnabled() ||
             $payment->method !== PaymentMethod::Gateway ||
             ! $payment->matchesTransaction($request->string('transaction_id')->toString())
         ) {

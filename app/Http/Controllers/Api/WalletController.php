@@ -76,10 +76,17 @@ class WalletController extends Controller
             'amount' => ['required', 'numeric', 'min:50000', 'max:50000000'],
         ]);
 
-        $payment = $this->checkoutService->createWalletChargePayment(
-            $request->user(),
-            (float) $validated['amount']
-        );
+        try {
+            $payment = $this->checkoutService->createWalletChargePayment(
+                $request->user(),
+                (float) $validated['amount']
+            );
+        } catch (RuntimeException $e) {
+            return response()->json([
+                'ok' => false,
+                'error' => $this->publicErrorMessage($e),
+            ], 422);
+        }
 
         $frontendUrl = config('app.frontend_url');
         $callbackUrl = route('api.wallet.callback', [
@@ -160,14 +167,14 @@ class WalletController extends Controller
                 $request->string('transaction_id')->toString()
             );
         } catch (RuntimeException $e) {
-            $redirectUrl = "{$frontendUrl}/my/wallet?payment=failed&error=".urlencode($e->getMessage());
+            $redirectUrl = "{$frontendUrl}/my/wallet?payment=failed&error=".urlencode($this->publicErrorMessage($e));
             if (! $request->wantsJson()) {
                 return redirect($redirectUrl);
             }
 
             return response()->json([
                 'ok' => false,
-                'error' => $e->getMessage(),
+                'error' => $this->publicErrorMessage($e),
                 'redirect_url' => $redirectUrl,
             ], 422);
         }

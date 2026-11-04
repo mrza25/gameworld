@@ -6,13 +6,17 @@ use App\Helpers\Jalali;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendOtpSms;
 use App\Models\User;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthController extends Controller
 {
@@ -48,7 +52,9 @@ class AuthController extends Controller
             'phonenumber' => ['nullable', 'string', 'max:20'],
             'email' => ['nullable', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:8'],
-            'code' => ['nullable', 'string'],
+            'code' => ['required', 'string'],
+        ], [
+            'code.required' => 'کد تأیید شماره موبایل الزامی است.',
         ]);
 
         $phone = $this->normalizePhone($validated['phone'] ?? $validated['phonenumber'] ?? '');
@@ -59,15 +65,21 @@ class AuthController extends Controller
             ]);
         }
 
-        if ($request->filled('code')) {
-            $code = trim($this->normalizeDigits($validated['code']));
-            if (! $this->isOtpValid($phone, $code)) {
-                throw ValidationException::withMessages([
-                    'code' => 'کد تأیید نامعتبر یا منقضی شده است.',
-                ]);
-            }
-            Cache::forget('otp:'.$phone);
+        if (! User::isValidMobile($phone)) {
+            throw ValidationException::withMessages([
+                'phone' => 'شماره موبایل معتبر نیست.',
+            ]);
         }
+
+        // Without proving ownership of the number, anyone could open an account
+        // for it in advance and keep access after its real owner signs in.
+        if (! $this->isOtpValid($phone, trim($this->normalizeDigits($validated['code'])))) {
+            throw ValidationException::withMessages([
+                'code' => 'کد تأیید نامعتبر یا منقضی شده است.',
+            ]);
+        }
+
+        Cache::forget('otp:'.$phone);
 
         if (User::where('phonenumber', $phone)->exists()) {
             throw ValidationException::withMessages([
@@ -140,7 +152,16 @@ class AuthController extends Controller
      */
     public function logout(Request $request): JsonResponse
     {
-        $request->user()?->currentAccessToken()?->delete();
+        $token = $request->user()?->currentAccessToken();
+
+        if ($token instanceof PersonalAccessToken) {
+            $token->delete();
+        } elseif ($request->hasSession()) {
+            // A browser signed in through the session has no token to revoke.
+            Auth::guard('web')->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+        }
 
         return response()->json([
             'ok' => true,
@@ -163,11 +184,13 @@ class AuthController extends Controller
 
         $phone = $this->normalizePhone((string) $phoneInput);
 
-        if (strlen($phone) < 10) {
+        if (! User::isValidMobile($phone)) {
             throw ValidationException::withMessages([
                 'phone' => 'شماره موبایل معتبر نیست.',
             ]);
         }
+
+        $this->ensureOtpCanBeSent($phone);
 
         $code = (string) random_int(10000, 99999);
         Cache::put('otp:'.$phone, $code, now()->addMinutes(2));
@@ -369,6 +392,8 @@ class AuthController extends Controller
         $phone = $this->newPhoneFor($user, $validated['phone']);
         $scope = $this->phoneChangeOtpScope($user);
 
+        $this->ensureOtpCanBeSent($phone);
+
         $code = (string) random_int(10000, 99999);
         Cache::put($this->otpCacheKey('otp', $phone, $scope), $code, now()->addMinutes(2));
         Cache::forget($this->otpCacheKey('otp-attempts', $phone, $scope));
@@ -459,10 +484,45 @@ class AuthController extends Controller
             'password' => Hash::make($validated['password']),
         ]);
 
+        $user->revokeTokensExcept($user->currentAccessToken());
+
         return response()->json([
             'ok' => true,
             'message' => 'رمز عبور با موفقیت تغییر یافت.',
         ]);
+    }
+
+    /**
+     * Limit how often one number can be sent a code, whatever IP asks for it.
+     * This stops SMS bombing and caps how many codes can be guessed at per hour.
+     */
+    private function ensureOtpCanBeSent(string $phone): void
+    {
+        $cooldownSeconds = (int) config('services.otp.resend_cooldown_seconds');
+        $cooldownKey = 'otp-send-cooldown:'.$phone;
+        $hourlyKey = 'otp-send-hourly:'.$phone;
+
+        $retryAfter = match (true) {
+            $cooldownSeconds > 0 && RateLimiter::tooManyAttempts($cooldownKey, 1) => RateLimiter::availableIn($cooldownKey),
+            RateLimiter::tooManyAttempts($hourlyKey, (int) config('services.otp.hourly_limit')) => RateLimiter::availableIn($hourlyKey),
+            default => null,
+        };
+
+        if ($retryAfter !== null) {
+            throw new HttpResponseException(
+                response()->json([
+                    'ok' => false,
+                    'error' => "برای ارسال دوباره‌ی کد {$retryAfter} ثانیه صبر کنید.",
+                    'retry_after' => $retryAfter,
+                ], 429)->header('Retry-After', (string) $retryAfter)
+            );
+        }
+
+        if ($cooldownSeconds > 0) {
+            RateLimiter::hit($cooldownKey, $cooldownSeconds);
+        }
+
+        RateLimiter::hit($hourlyKey, 3600);
     }
 
     /**
@@ -525,7 +585,7 @@ class AuthController extends Controller
     {
         $phone = $this->normalizePhone($input);
 
-        if (strlen($phone) < 10) {
+        if (! User::isValidMobile($phone)) {
             throw ValidationException::withMessages([
                 'phone' => 'شماره موبایل معتبر نیست.',
             ]);
@@ -564,21 +624,7 @@ class AuthController extends Controller
 
     private function normalizePhone(string $phone): string
     {
-        // Replace Persian/Arabic digits
-        $fa = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
-        $ar = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-        $en = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-
-        $phone = str_replace($fa, $en, $phone);
-        $phone = str_replace($ar, $en, $phone);
-        $digits = preg_replace('/\D/', '', $phone);
-
-        // Normalize Iranian numbers (+989... -> 09...)
-        if (str_starts_with($digits, '989')) {
-            $digits = '0'.substr($digits, 2);
-        }
-
-        return $digits;
+        return User::normalizePhone($phone);
     }
 
     private function transformUser(User $user): array

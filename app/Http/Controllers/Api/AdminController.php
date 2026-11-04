@@ -475,6 +475,11 @@ class AdminController extends Controller
         }
         $user->save();
 
+        // Whoever held the old password must not stay signed in with it.
+        if (! empty($validated['password'])) {
+            $user->revokeTokensExcept($request->user()->currentAccessToken());
+        }
+
         if (isset($validated['wallet_balance'])) {
             $this->adjustWalletBalance($user, (float) $validated['wallet_balance']);
         }
@@ -489,9 +494,17 @@ class AdminController extends Controller
     /**
      * Delete user by admin.
      */
-    public function deleteUser(int $id): JsonResponse
+    public function deleteUser(Request $request, int $id): JsonResponse
     {
         $user = User::findOrFail($id);
+
+        if ($user->is($request->user())) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'نمی‌توانید حساب خودتان را حذف کنید.',
+            ], 422);
+        }
+
         if ($user->orders()->exists()) {
             return response()->json([
                 'ok' => false,
@@ -1010,9 +1023,13 @@ class AdminController extends Controller
     {
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:255'],
-            'image' => ['required'],
-            'link' => ['nullable', 'string'],
+            'image' => $request->hasFile('image')
+                ? ['required', 'image', 'max:4096']
+                : ['required', 'string', 'max:2048'],
+            'link' => ['nullable', 'string', 'max:500', 'regex:#^(/(?!/)|https?://)#'],
             'sort_order' => ['nullable', 'integer'],
+        ], [
+            'link.regex' => 'لینک باید با / یا http شروع شود.',
         ]);
 
         $imagePath = $request->hasFile('image')
@@ -1325,7 +1342,7 @@ class AdminController extends Controller
 
         $path = Game::normalizeImageReference($reference);
 
-        if (Str::startsWith($path, 'games/')) {
+        if (Str::startsWith($path, 'games/') && ! Str::contains($path, '..')) {
             Storage::disk('public')->delete($path);
         }
     }
@@ -1543,7 +1560,7 @@ class AdminController extends Controller
         } catch (\RuntimeException $e) {
             return response()->json([
                 'ok' => false,
-                'error' => $e->getMessage(),
+                'error' => $this->publicErrorMessage($e),
             ], 422);
         }
 

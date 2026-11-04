@@ -45,11 +45,15 @@ class AuthController extends Controller
 
     public function showRegister()
     {
+        $this->ensureRegistrationIsOpen();
+
         return view('auth.register');
     }
 
     public function register(Request $request)
     {
+        $this->ensureRegistrationIsOpen();
+
         if ($request->filled('phonenumber')) {
             $request->merge([
                 'phonenumber' => $this->normalizePhone((string) $request->input('phonenumber')),
@@ -100,20 +104,17 @@ class AuthController extends Controller
             ->with('success', 'You have been logged out.');
     }
 
+    /**
+     * This form cannot verify the phone number, so anyone could open an account
+     * for someone else's number. Live sites register through the API instead.
+     */
+    private function ensureRegistrationIsOpen(): void
+    {
+        abort_if(app()->isProduction(), 404);
+    }
+
     private function normalizePhone(string $phone): string
     {
-        $fa = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
-        $ar = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-        $en = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-
-        $phone = str_replace($fa, $en, $phone);
-        $phone = str_replace($ar, $en, $phone);
-        $digits = preg_replace('/\D/', '', $phone);
-
-        if (str_starts_with($digits, '989')) {
-            $digits = '0'.substr($digits, 2);
-        }
-
-        return $digits;
+        return User::normalizePhone($phone);
     }
 }

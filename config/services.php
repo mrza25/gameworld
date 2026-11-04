@@ -37,4 +37,19 @@ return [
         ],
     ],
 
+    'payment' => [
+        // The sandbox gateway hands out free wallet credit, so production refuses it unless told otherwise.
+        'allow_fake_gateway' => (bool) env('PAYMENT_ALLOW_FAKE_GATEWAY', false),
+    ],
+
+    'otp' => [
+        'resend_cooldown_seconds' => (int) env('OTP_RESEND_COOLDOWN', 60),
+        'hourly_limit' => (int) env('OTP_HOURLY_LIMIT', 5),
+    ],
+
+    'rate_limits' => [
+        'api_per_minute' => (int) env('API_RATE_LIMIT', 300),
+        'login_per_minute' => (int) env('LOGIN_ATTEMPTS_PER_MINUTE', 5),
+    ],
+
 ];

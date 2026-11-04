@@ -14,6 +14,8 @@ class ExtractTokenFromCookie
      * Handle an incoming request.
      * If an Authorization header is missing but the gw_token cookie is present,
      * inject it as a Bearer token so Sanctum authenticates the request seamlessly.
+     * Tokens are never read from the query string: URLs end up in server logs,
+     * browser history and Referer headers.
      */
     public function handle(Request $request, Closure $next): Response
     {
@@ -30,9 +32,7 @@ class ExtractTokenFromCookie
             ?? $request->cookies->get('auth_token')
             ?? $request->header('X-Auth-Token')
             ?? $request->header('X-Token')
-            ?? $request->header('X-Access-Token')
-            ?? $request->query('token')
-            ?? $request->query('auth_token');
+            ?? $request->header('X-Access-Token');
 
         if (empty($rawToken)) {
             $sessionCookie = $request->cookie('gw_session') ?? $request->cookies->get('gw_session');

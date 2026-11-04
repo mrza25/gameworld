@@ -20,7 +20,7 @@ return [
 
     'stateful' => array_values(array_filter(array_unique(array_merge(
         explode(',', env('SANCTUM_STATEFUL_DOMAINS', '')),
-        [
+        env('APP_ENV') === 'local' ? [
             'localhost',
             'localhost:3000',
             '127.0.0.1',
@@ -33,7 +33,7 @@ return [
             '192.168.1.149:8000',
             '192.168.1.149',
             '::1',
-        ],
+        ] : [],
         Sanctum::currentApplicationUrlWithPort() ? [Sanctum::currentApplicationUrlWithPort()] : []
     )))),
 
