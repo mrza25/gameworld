@@ -184,7 +184,10 @@ class CheckoutService
                 ->findOrFail($payment->id);
 
             if ($payment->status === PaymentStatus::Paid) {
-                if (! $payment->matchesTransaction($transactionId)) {
+                if (
+                    $payment->method !== PaymentMethod::Gateway ||
+                    ! $payment->matchesTransaction($transactionId)
+                ) {
                     throw new RuntimeException(
                         'Payment verification failed.'
                     );
@@ -278,7 +281,10 @@ class CheckoutService
                 $payment->status === PaymentStatus::Paid &&
                 $payment->order_id !== null
             ) {
-                if (! $payment->matchesTransaction($transactionId)) {
+                if (
+                    $payment->method !== PaymentMethod::Gateway ||
+                    ! $payment->matchesTransaction($transactionId)
+                ) {
                     throw new RuntimeException(
                         'Payment verification failed.'
                     );

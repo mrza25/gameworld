@@ -9,6 +9,7 @@ use App\Models\GameVariant;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Platform;
+use App\PaymentMethod;
 use App\PaymentStatus;
 use App\Services\CheckoutService;
 use App\Services\OrderCancellationService;
@@ -399,7 +400,7 @@ class OrderController extends Controller
         $payment = Payment::findOrFail($request->integer('payment'));
         $frontendUrl = config('app.frontend_url');
 
-        if ($payment->status === PaymentStatus::Paid && $payment->order_id && $payment->matchesTransaction($request->string('transaction_id')->toString())) {
+        if ($payment->method === PaymentMethod::Gateway && $payment->status === PaymentStatus::Paid && $payment->order_id && $payment->matchesTransaction($request->string('transaction_id')->toString())) {
             $order = Order::with(['items.game', 'items.gameVariant.platform', 'items.selectedOption'])->find($payment->order_id);
             $redirectUrl = "{$frontendUrl}/my/orders?payment=success&order_id={$payment->order_id}";
 

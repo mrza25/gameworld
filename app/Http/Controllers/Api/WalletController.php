@@ -6,6 +6,7 @@ use App\Contracts\PaymentGateway;
 use App\Http\Controllers\Controller;
 use App\Models\Payment;
 use App\Models\WalletTransaction;
+use App\PaymentMethod;
 use App\PaymentStatus;
 use App\Services\CheckoutService;
 use App\Services\WalletService;
@@ -141,7 +142,7 @@ class WalletController extends Controller
         $payment = Payment::findOrFail($request->integer('payment'));
         $frontendUrl = config('app.frontend_url');
 
-        if ($payment->status === PaymentStatus::Paid && $payment->matchesTransaction($request->string('transaction_id')->toString())) {
+        if ($payment->method === PaymentMethod::Gateway && $payment->status === PaymentStatus::Paid && $payment->matchesTransaction($request->string('transaction_id')->toString())) {
             $redirectUrl = "{$frontendUrl}/my/wallet?payment=success";
             if (! $request->wantsJson()) {
                 return redirect($redirectUrl);

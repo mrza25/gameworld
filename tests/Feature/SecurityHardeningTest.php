@@ -389,6 +389,30 @@ class SecurityHardeningTest extends TestCase
         Log::shouldHaveReceived('error')->withArgs(fn (string $message) => ! str_contains($message, '54321'));
     }
 
+    public function test_public_callbacks_reveal_nothing_about_non_gateway_payments(): void
+    {
+        $variant = $this->createVariant();
+        $user = User::factory()->create();
+        $user->wallet()->create(['balance' => 5000000]);
+
+        $orderId = $this->actingAs($user)
+            ->postJson(route('api.orders.checkout'), ['method' => 'wallet', 'items' => [['variantId' => $variant->id]]])
+            ->assertCreated()
+            ->json('data.order_id');
+        $payment = Payment::where('order_id', $orderId)->sole();
+        $this->assertSame("wallet-{$payment->id}", $payment->transaction_id);
+
+        $this->app['auth']->forgetGuards();
+
+        $this->getJson(route('api.orders.callback', ['payment' => $payment->id, 'transaction_id' => "wallet-{$payment->id}"]))
+            ->assertUnprocessable()
+            ->assertJsonMissingPath('order');
+
+        $this->getJson(route('api.wallet.callback', ['payment' => $payment->id, 'transaction_id' => "wallet-{$payment->id}"]))
+            ->assertUnprocessable()
+            ->assertJsonMissingPath('balance');
+    }
+
     public function test_replacing_a_cover_cannot_delete_files_outside_the_games_folder(): void
     {
         Storage::fake('public');
