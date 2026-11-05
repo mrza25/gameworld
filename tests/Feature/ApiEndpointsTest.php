@@ -293,7 +293,7 @@ class ApiEndpointsTest extends TestCase
         ]);
         $res2->assertStatus(422)
             ->assertJsonValidationErrors(['method'])
-            ->assertJsonFragment(['method' => ['روش پرداخت باید کیف پول یا درگاه بانکی باشد.']]);
+            ->assertJsonFragment(['method' => ['روش پرداخت باید کیف پول، درگاه بانکی یا کارت به کارت باشد.']]);
 
         // 3. Missing console is inferred from the selected variants
         $res3 = $this->withToken($token)->postJson(route('api.orders.checkout'), [

@@ -11,14 +11,17 @@ use App\Models\Payment;
 use App\Models\Platform;
 use App\PaymentMethod;
 use App\PaymentStatus;
+use App\Services\CardPaymentService;
 use App\Services\CheckoutService;
 use App\Services\OrderCancellationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
+use Symfony\Component\HttpFoundation\Response;
 
 class OrderController extends Controller
 {
@@ -115,6 +118,63 @@ class OrderController extends Controller
     }
 
     /**
+     * The ways a customer can pay right now, and the card to transfer to.
+     */
+    public function paymentMethods(): JsonResponse
+    {
+        $card = CardPaymentService::destinationCard();
+
+        return response()->json([
+            'ok' => true,
+            'data' => [
+                ['value' => PaymentMethod::Wallet->value, 'label' => 'کیف پول', 'enabled' => true],
+                ['value' => PaymentMethod::Gateway->value, 'label' => 'درگاه بانکی', 'enabled' => $this->paymentGateway->isAvailable()],
+                ['value' => PaymentMethod::CardToCard->value, 'label' => 'کارت به کارت', 'enabled' => $card !== null, 'card' => $card],
+            ],
+        ]);
+    }
+
+    /**
+     * Upload the receipt of a card-to-card transfer for an order of the customer's.
+     */
+    public function uploadReceipt(Request $request, int|string $id, CardPaymentService $cardPaymentService): JsonResponse
+    {
+        $order = $request->user()->orders()->findOrFail(Order::idFromReference($id));
+
+        $validated = $request->validate(CardPaymentService::RECEIPT_RULES, CardPaymentService::RECEIPT_MESSAGES);
+
+        try {
+            $order = $cardPaymentService->submitReceipt($order, $validated['receipt']);
+        } catch (RuntimeException $e) {
+            return response()->json([
+                'ok' => false,
+                'error' => $this->publicErrorMessage($e),
+            ], 422);
+        }
+
+        $orderData = $this->transformOrder($order->fresh(['items.game', 'items.gameVariant.platform', 'items.selectedOption', 'payments']));
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'رسید شما ثبت شد و بعد از بررسی نتیجه به شما اعلام می‌شود.',
+            'data' => $orderData,
+            'order' => $orderData,
+        ]);
+    }
+
+    /**
+     * Serve a private receipt. The signed link is the permission: see Payment::receiptUrl().
+     */
+    public function showReceipt(Payment $payment): Response
+    {
+        $disk = Storage::disk(CardPaymentService::RECEIPT_DISK);
+
+        abort_unless($payment->receipt_path && $disk->exists($payment->receipt_path), 404);
+
+        return $disk->response($payment->receipt_path, null, ['Cache-Control' => 'private, no-store']);
+    }
+
+    /**
      * Checkout an order with either wallet balance or payment gateway.
      *
      * When no console is sent it is inferred from the selected variants, and
@@ -144,7 +204,7 @@ class OrderController extends Controller
         $validated = $request->validate([
             'console' => ['nullable', 'string'],
             'console_note' => ['nullable', 'string', 'max:255'],
-            'method' => ['nullable', 'string', 'in:wallet,gateway'],
+            'method' => ['nullable', 'string', 'in:wallet,gateway,card_to_card'],
             'variants' => ['nullable', 'array', 'min:1'],
             'variants.*' => ['integer', 'exists:game_variants,id'],
             'items' => ['nullable', 'array', 'min:1'],
@@ -154,7 +214,7 @@ class OrderController extends Controller
             'games.*' => ['nullable'],
             'coupon_code' => ['nullable', 'string', 'max:50'],
         ], [
-            'method.in' => 'روش پرداخت باید کیف پول یا درگاه بانکی باشد.',
+            'method.in' => 'روش پرداخت باید کیف پول، درگاه بانکی یا کارت به کارت باشد.',
             'items.*.quantity.max' => 'هر بازی فقط یک بار روی کنسول نصب می‌شود؛ تعداد باید ۱ باشد.',
             'items.*.option_id.integer' => 'شناسه‌ی گزینه معتبر نیست.',
         ]);
@@ -319,6 +379,49 @@ class OrderController extends Controller
                     'error' => $this->publicErrorMessage($e),
                 ], 422);
             }
+        }
+
+        // Card-to-card Checkout
+        if ($validated['method'] === PaymentMethod::CardToCard->value) {
+            try {
+                $order = $this->checkoutService->createCardPaymentOrder(
+                    $request->user(),
+                    [
+                        'console_type' => $platform->name,
+                        'console_note' => $validated['console_note'] ?? null,
+                    ],
+                    $variantIds,
+                    $total,
+                    $optionIdsByVariant
+                );
+            } catch (RuntimeException $e) {
+                return response()->json([
+                    'ok' => false,
+                    'error' => $this->publicErrorMessage($e),
+                ], 422);
+            }
+
+            $orderData = $this->transformOrder($order->fresh(['items.game', 'items.gameVariant.platform', 'items.selectedOption', 'payments']));
+            $message = 'سفارش ثبت شد. مبلغ را کارت به کارت کنید و عکس رسید را ارسال کنید.';
+
+            return response()->json([
+                'ok' => true,
+                'method' => PaymentMethod::CardToCard->value,
+                'order_id' => $order->id,
+                'id' => $order->id,
+                'order' => $orderData,
+                'data' => [
+                    'method' => PaymentMethod::CardToCard->value,
+                    'payment_method' => PaymentMethod::CardToCard->value,
+                    'status' => 'awaiting_payment',
+                    'order_id' => $order->id,
+                    'amount' => (float) $order->total,
+                    'redirect_url' => "/my/orders/{$order->id}",
+                    'message' => $message,
+                    'order' => $orderData,
+                ],
+                'message' => $message,
+            ], 201);
         }
 
         // Gateway Checkout

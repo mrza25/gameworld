@@ -46,6 +46,10 @@ class AdminOrderController extends Controller
             return back()->with('error', 'Cancelled orders have been refunded and cannot be changed.');
         }
 
+        if ($order->isAwaitingPayment()) {
+            return back()->with('error', 'This order is waiting for its payment to be confirmed.');
+        }
+
         $validated = $request->validate([
             'status' => [
                 'required',
@@ -81,6 +85,10 @@ class AdminOrderController extends Controller
             return back()->with('error', 'Cancelled orders have been refunded and cannot be changed.');
         }
 
+        if ($order->isAwaitingPayment()) {
+            return back()->with('error', 'This order is waiting for its payment to be confirmed.');
+        }
+
         $validated = $request->validate([
             'payment_status' => [
                 'required',
@@ -112,6 +120,10 @@ class AdminOrderController extends Controller
     ) {
         if ($order->status === OrderStatus::Cancelled) {
             return back()->with('error', 'Cancelled orders have been refunded and cannot be changed.');
+        }
+
+        if ($order->isAwaitingPayment()) {
+            return back()->with('error', 'This order is waiting for its payment to be confirmed.');
         }
 
         $validated = $request->validate([

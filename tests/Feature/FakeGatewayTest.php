@@ -180,6 +180,11 @@ class FakeGatewayTest extends TestCase
 
         $this->app->instance(PaymentGateway::class, new class implements PaymentGateway
         {
+            public function isAvailable(): bool
+            {
+                return true;
+            }
+
             public function purchase(Payment $payment): string
             {
                 return 'REAL-1';

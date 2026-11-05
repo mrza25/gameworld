@@ -4,7 +4,9 @@ namespace App\Models;
 
 use App\Helpers\Jalali;
 use App\OrderStatus;
+use App\PaymentMethod;
 use App\PaymentStatus;
+use App\Services\CardPaymentService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -23,12 +25,14 @@ class Order extends Model
         'total',
         'status',
         'payment_status',
+        'payment_due_at',
     ];
 
     protected $casts = [
         'status' => OrderStatus::class,
         'payment_status' => PaymentStatus::class,
         'total' => 'decimal:2',
+        'payment_due_at' => 'datetime',
     ];
 
     public function user(): BelongsTo
@@ -67,17 +71,104 @@ class Order extends Model
     }
 
     /**
-     * Whether a customer may still cancel this order: nothing has started installing yet.
+     * Whether the order is waiting for its card-to-card payment to be confirmed.
+     * Nothing else may happen to it until then.
+     */
+    public function isAwaitingPayment(): bool
+    {
+        return $this->status === OrderStatus::AwaitingPayment;
+    }
+
+    public function latestCardPayment(): ?Payment
+    {
+        return $this->payments
+            ->filter(fn (Payment $payment) => $payment->method === PaymentMethod::CardToCard)
+            ->sortByDesc('id')
+            ->first();
+    }
+
+    /**
+     * Whether a customer may still cancel this order: nothing has started
+     * installing yet, and no receipt is under review, since that money may
+     * already have been transferred.
      */
     public function isCancellableByCustomer(): bool
     {
+        if ($this->isAwaitingPayment()) {
+            return ! $this->latestCardPayment()?->hasReceiptInReview();
+        }
+
         return $this->status === OrderStatus::Pending
             && $this->items->every(fn ($item) => $item->installation_status === 'pending');
     }
 
+    /**
+     * Orders with a receipt waiting for an admin.
+     */
+    public function scopeWithReceiptInReview(Builder $query): Builder
+    {
+        return $query->whereHas('payments', fn ($payments) => $payments->inReview());
+    }
+
+    /**
+     * Every receipt sent for this order, newest first, for the admin who reviews
+     * them, along with anywhere else the same file was used.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function receiptHistoryArray(): array
+    {
+        $receipts = $this->payments
+            ->filter(fn (Payment $payment) => $payment->method === PaymentMethod::CardToCard && $payment->receipt_path)
+            ->sortByDesc('id');
+
+        $duplicates = Payment::duplicateReceipts($receipts);
+
+        return $receipts
+            ->map(fn (Payment $payment) => [
+                'payment_id' => $payment->id,
+                'status' => $payment->reviewStatus(),
+                'amount' => (float) $payment->amount,
+                'receipt_url' => $payment->receiptUrl(),
+                'uploaded_at' => $payment->receipt_uploaded_at?->toIso8601String(),
+                'reviewed_at' => $payment->reviewed_at?->toIso8601String(),
+                'reviewed_by' => $payment->reviewer ? ['id' => $payment->reviewer->id, 'name' => $payment->reviewer->name] : null,
+                'reject_reason' => $payment->review_note,
+            ] + $duplicates[$payment->id])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function cardPaymentArray(): ?array
+    {
+        $payment = $this->latestCardPayment();
+
+        if ($payment === null) {
+            return null;
+        }
+
+        $isAwaitingPayment = $this->isAwaitingPayment();
+        $reviewStatus = $payment->reviewStatus();
+
+        return [
+            'status' => $reviewStatus,
+            'amount' => (float) $payment->amount,
+            'card' => $isAwaitingPayment ? CardPaymentService::destinationCard() : null,
+            'due_at' => $isAwaitingPayment ? $this->payment_due_at?->toIso8601String() : null,
+            'can_upload_receipt' => $isAwaitingPayment && $reviewStatus !== Payment::REVIEW_IN_REVIEW,
+            'receipt_url' => $payment->receiptUrl(),
+            'receipt_uploaded_at' => $payment->receipt_uploaded_at?->toIso8601String(),
+            'reviewed_at' => $payment->reviewed_at?->toIso8601String(),
+            'reject_reason' => $reviewStatus === Payment::REVIEW_REJECTED ? $payment->review_note : null,
+        ];
+    }
+
     public function syncStatusFromItems(): void
     {
-        if ($this->status === OrderStatus::Cancelled) {
+        if ($this->status === OrderStatus::Cancelled || $this->isAwaitingPayment()) {
             return;
         }
 
@@ -109,6 +200,7 @@ class Order extends Model
     public function toApiArray(): array
     {
         $statusMap = [
+            'awaiting_payment' => 'در انتظار تأیید پرداخت',
             'pending' => 'در حال بررسی',
             'processing' => 'در حال پردازش',
             'completed' => 'تکمیل شده',
@@ -138,14 +230,14 @@ class Order extends Model
         $platform = Platform::findByNameOrSlug($this->console_type);
         $consoleSlug = $platform?->slug ?? Str::slug($this->console_type);
 
-        $paymentMethod = $this->payments
-            ->first(fn (Payment $payment) => $payment->status === PaymentStatus::Paid)
-            ?->method?->value;
+        $paymentMethod = ($this->payments->first(fn (Payment $payment) => $payment->status === PaymentStatus::Paid)
+            ?? $this->latestCardPayment())?->method?->value;
 
         return [
             'id' => $this->id,
             'orderId' => '#'.$this->id,
             'paymentMethod' => $paymentMethod,
+            'card_payment' => $this->cardPaymentArray(),
             'cancellable' => $this->isCancellableByCustomer(),
             'userId' => $this->user_id,
             'name' => $this->user?->name,

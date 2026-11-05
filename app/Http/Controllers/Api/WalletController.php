@@ -8,6 +8,7 @@ use App\Models\Payment;
 use App\Models\WalletTransaction;
 use App\PaymentMethod;
 use App\PaymentStatus;
+use App\Services\CardPaymentService;
 use App\Services\CheckoutService;
 use App\Services\WalletService;
 use Illuminate\Http\JsonResponse;
@@ -19,6 +20,7 @@ class WalletController extends Controller
     public function __construct(
         private WalletService $walletService,
         private CheckoutService $checkoutService,
+        private CardPaymentService $cardPaymentService,
         private PaymentGateway $paymentGateway
     ) {}
 
@@ -69,13 +71,39 @@ class WalletController extends Controller
     }
 
     /**
-     * Initiate a gateway top-up.
+     * Initiate a wallet top-up, through the gateway unless `method` says
+     * card_to_card. A card-to-card top-up is only credited once an admin has
+     * confirmed its receipt.
      */
     public function charge(Request $request): JsonResponse
     {
+        if (! $request->has('method') && $request->has('payment_method')) {
+            $request->merge(['method' => $request->input('payment_method')]);
+        }
+
         $validated = $request->validate([
             'amount' => ['required', 'numeric', 'min:50000', 'max:50000000'],
+            'method' => ['nullable', 'string', 'in:gateway,card_to_card'],
+        ], [
+            'method.in' => 'روش شارژ باید درگاه بانکی یا کارت به کارت باشد.',
         ]);
+
+        if (($validated['method'] ?? null) === PaymentMethod::CardToCard->value) {
+            try {
+                $charge = $this->cardPaymentService->createWalletCharge($request->user(), (float) $validated['amount']);
+            } catch (RuntimeException $e) {
+                return response()->json([
+                    'ok' => false,
+                    'error' => $this->publicErrorMessage($e),
+                ], 422);
+            }
+
+            return response()->json([
+                'ok' => true,
+                'message' => 'مبلغ را کارت به کارت کنید و عکس رسید را ارسال کنید.',
+                'data' => $charge->toWalletChargeArray(),
+            ], 201);
+        }
 
         try {
             $payment = $this->checkoutService->createWalletChargePayment(
@@ -120,6 +148,50 @@ class WalletController extends Controller
                 'transaction_id' => $payment->transaction_id,
             ],
             'message' => 'درگاه پرداخت آماده است.',
+        ]);
+    }
+
+    /**
+     * The customer's card-to-card top-ups, newest first.
+     */
+    public function cardCharges(Request $request): JsonResponse
+    {
+        $charges = $request->user()
+            ->payments()
+            ->cardWalletCharges()
+            ->latest()
+            ->orderByDesc('id')
+            ->paginate(min(max($request->integer('per_page', 15), 1), 100))
+            ->withQueryString();
+
+        return $this->paginatedResponse(
+            $charges,
+            $charges->getCollection()->map(fn (Payment $charge) => $charge->toWalletChargeArray())
+        );
+    }
+
+    /**
+     * Upload the receipt of one of the customer's card-to-card top-ups.
+     */
+    public function uploadChargeReceipt(Request $request, int $id): JsonResponse
+    {
+        $charge = $request->user()->payments()->cardWalletCharges()->findOrFail($id);
+
+        $validated = $request->validate(CardPaymentService::RECEIPT_RULES, CardPaymentService::RECEIPT_MESSAGES);
+
+        try {
+            $charge = $this->cardPaymentService->submitWalletChargeReceipt($charge, $validated['receipt']);
+        } catch (RuntimeException $e) {
+            return response()->json([
+                'ok' => false,
+                'error' => $this->publicErrorMessage($e),
+            ], 422);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'رسید شما ثبت شد و بعد از بررسی، کیف پول شما شارژ می‌شود.',
+            'data' => $charge->fresh()->toWalletChargeArray(),
         ]);
     }
 

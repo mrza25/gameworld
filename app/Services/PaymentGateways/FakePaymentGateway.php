@@ -25,6 +25,11 @@ class FakePaymentGateway implements PaymentGateway
         return ! app()->isProduction() || config('services.payment.allow_fake_gateway');
     }
 
+    public function isAvailable(): bool
+    {
+        return self::isEnabled();
+    }
+
     public function purchase(Payment $payment): string
     {
         if (! self::isEnabled()) {

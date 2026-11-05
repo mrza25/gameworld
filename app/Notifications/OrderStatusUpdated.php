@@ -20,6 +20,7 @@ class OrderStatusUpdated extends UserNotification
         $this->status = $order->status->value;
 
         [$title, $message] = match ($order->status) {
+            OrderStatus::AwaitingPayment => ["سفارش #{$order->id} در انتظار پرداخت است", 'پرداخت این سفارش هنوز تأیید نشده است.'],
             OrderStatus::Pending => ["سفارش #{$order->id} در حال بررسی است", 'سفارش شما در صف بررسی قرار گرفت.'],
             OrderStatus::Processing => ["سفارش #{$order->id} در حال پردازش است", 'نصب بازی‌های سفارش شما شروع شده است.'],
             OrderStatus::Completed => ["سفارش #{$order->id} تکمیل شد", 'همه‌ی بازی‌های سفارش شما نصب شد.'],

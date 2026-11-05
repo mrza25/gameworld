@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Game;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\Payment;
 use App\Models\Platform;
 use App\Models\User;
 use App\Models\WalletTransaction;
@@ -98,6 +99,10 @@ class AdminController extends Controller
             $query->where('user_id', $request->integer('user_id'));
         }
 
+        if ($request->input('receipt_status') === 'in_review') {
+            $query->withReceiptInReview();
+        }
+
         if ($request->filled('status')) {
             $statusKey = $this->resolveStatusKey($request->status);
             $query->where('status', $statusKey);
@@ -152,10 +157,10 @@ class AdminController extends Controller
      */
     public function orderDetail(int|string $id): JsonResponse
     {
-        $order = Order::with(['user', 'items.game', 'items.gameVariant.platform', 'items.selectedOption', 'payments'])
+        $order = Order::with(['user', 'items.game', 'items.gameVariant.platform', 'items.selectedOption', 'payments.reviewer'])
             ->findOrFail(Order::idFromReference($id));
 
-        $orderData = $this->orderWithUser($order);
+        $orderData = $this->orderWithUser($order) + ['receipts' => $order->receiptHistoryArray()];
 
         return response()->json([
             'ok' => true,
@@ -192,6 +197,12 @@ class AdminController extends Controller
 
         if (! empty($validated['status']) && $this->resolveStatusKey($validated['status']) === OrderStatus::Cancelled->value) {
             return $this->cancelOrderAsAdmin($order);
+        }
+
+        $this->ensureOrderIsPaidFor($order);
+
+        if (! empty($validated['status'])) {
+            $this->ensureStatusCanBeSet($this->resolveStatusKey($validated['status']));
         }
 
         $oldStatus = $order->status;
@@ -262,6 +273,9 @@ class AdminController extends Controller
             return $this->cancelOrderAsAdmin($order);
         }
 
+        $this->ensureOrderIsPaidFor($order);
+        $this->ensureStatusCanBeSet($statusKey);
+
         $oldStatus = $order->status instanceof \BackedEnum ? $order->status->value : $order->status;
         $order->update(['status' => $statusKey]);
         $order->refresh();
@@ -289,6 +303,7 @@ class AdminController extends Controller
 
         $order = Order::findOrFail($id);
         $this->ensureOrderIsNotCancelled($order);
+        $this->ensureOrderIsPaidFor($order);
         $paymentKey = $this->resolvePaymentStatusKey($validated['payment_status']);
         $oldPaymentStatus = $order->payment_status;
 
@@ -316,6 +331,7 @@ class AdminController extends Controller
 
         $order = Order::findOrFail($orderId);
         $this->ensureOrderIsNotCancelled($order);
+        $this->ensureOrderIsPaidFor($order);
         $item = $order->items()->findOrFail($itemId);
 
         $installKey = $this->resolveInstallStatusKey($validated['installation_status']);
@@ -1460,6 +1476,9 @@ class AdminController extends Controller
             'games' => $totalGames,
             'orders' => $totalOrders,
             'users' => $totalUsers,
+            'awaiting_payment_orders' => (int) ($statusCounts[OrderStatus::AwaitingPayment->value] ?? 0),
+            'receipts_in_review' => Order::query()->withReceiptInReview()->count(),
+            'wallet_charges_in_review' => Payment::query()->cardWalletCharges()->inReview()->count(),
             'pending_orders' => (int) ($statusCounts[OrderStatus::Pending->value] ?? 0),
             'processing_orders' => (int) ($statusCounts[OrderStatus::Processing->value] ?? 0),
             'completed_orders' => (int) ($statusCounts[OrderStatus::Completed->value] ?? 0),
@@ -1581,6 +1600,9 @@ class AdminController extends Controller
             'totalOrders' => $stats['total_orders'],
             'todayOrders' => $stats['today_orders'],
             'totalRevenue' => (float) Order::where('payment_status', PaymentStatus::Paid)->sum('total'),
+            'awaitingPaymentOrders' => $stats['awaiting_payment_orders'],
+            'receiptsInReview' => $stats['receipts_in_review'],
+            'walletChargesInReview' => $stats['wallet_charges_in_review'],
             'pendingOrders' => $stats['pending_orders'],
             'processingOrders' => $stats['processing_orders'],
             'completedOrders' => $stats['completed_orders'],
@@ -1608,6 +1630,28 @@ class AdminController extends Controller
         if ($order->status === OrderStatus::Cancelled) {
             throw ValidationException::withMessages([
                 'status' => 'سفارش لغوشده قابل تغییر نیست.',
+            ]);
+        }
+    }
+
+    /**
+     * An order waiting for its card-to-card payment can only be approved,
+     * rejected or cancelled: see AdminCardPaymentController.
+     */
+    private function ensureOrderIsPaidFor(Order $order): void
+    {
+        if ($order->isAwaitingPayment()) {
+            throw ValidationException::withMessages([
+                'status' => 'پرداخت این سفارش هنوز تأیید نشده است. ابتدا رسید را بررسی کنید.',
+            ]);
+        }
+    }
+
+    private function ensureStatusCanBeSet(string $statusKey): void
+    {
+        if ($statusKey === OrderStatus::AwaitingPayment->value) {
+            throw ValidationException::withMessages([
+                'status' => 'این وضعیت را نمی‌توان دستی انتخاب کرد.',
             ]);
         }
     }
@@ -1642,6 +1686,7 @@ class AdminController extends Controller
     private function resolveStatusKey(string $status): string
     {
         return match ($status) {
+            'در انتظار تأیید پرداخت', 'awaiting_payment' => OrderStatus::AwaitingPayment->value,
             'در حال بررسی', 'pending' => OrderStatus::Pending->value,
             'در حال پردازش', 'تایید شده', 'processing', 'confirmed' => OrderStatus::Processing->value,
             'تکمیل شده', 'آماده تحویل', 'completed', 'ready' => OrderStatus::Completed->value,

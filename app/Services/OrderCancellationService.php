@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Order;
 use App\Notifications\OrderStatusUpdated;
 use App\OrderStatus;
+use App\PaymentMethod;
 use App\PaymentStatus;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -20,11 +21,15 @@ class OrderCancellationService
      *
      * Customers can only cancel before installation starts; admins can also
      * cancel orders that are being processed. Completed orders cannot be cancelled.
+     *
+     * A receipt under review blocks everyone: the money may already have been
+     * transferred, so an admin must approve or reject it first. An approved
+     * order is then refunded to the wallet like any other paid order.
      */
     public function cancel(Order $order, bool $byAdmin = false): Order
     {
         return DB::transaction(function () use ($order, $byAdmin) {
-            $order = Order::query()->with('items')->lockForUpdate()->findOrFail($order->id);
+            $order = Order::query()->with(['items', 'payments'])->lockForUpdate()->findOrFail($order->id);
 
             if ($order->status === OrderStatus::Cancelled) {
                 throw new RuntimeException('این سفارش قبلاً لغو شده است.');
@@ -32,6 +37,12 @@ class OrderCancellationService
 
             if ($order->status === OrderStatus::Completed) {
                 throw new RuntimeException('سفارش تکمیل‌شده قابل لغو نیست.');
+            }
+
+            if ($order->isAwaitingPayment() && $order->latestCardPayment()?->hasReceiptInReview()) {
+                throw new RuntimeException($byAdmin
+                    ? 'رسید این سفارش در حال بررسی است. ابتدا آن را تأیید یا رد کنید.'
+                    : 'رسید شما در حال بررسی است و تا مشخص شدن نتیجه نمی‌توانید سفارش را لغو کنید.');
             }
 
             if (! $byAdmin && ! $order->isCancellableByCustomer()) {
@@ -51,6 +62,16 @@ class OrderCancellationService
                     ->update(['status' => PaymentStatus::Refunded]);
 
                 $order->payment_status = PaymentStatus::Refunded;
+            }
+
+            if ($order->isAwaitingPayment()) {
+                $order->payments()
+                    ->where('method', PaymentMethod::CardToCard)
+                    ->where('status', PaymentStatus::Pending)
+                    ->update(['status' => PaymentStatus::Failed]);
+
+                $order->payment_status = PaymentStatus::Failed;
+                $order->payment_due_at = null;
             }
 
             $order->status = OrderStatus::Cancelled;

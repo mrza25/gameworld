@@ -8,8 +8,10 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Models\User;
 use App\Notifications\GatewayPaymentFailed;
+use App\Notifications\OrderAwaitingCardPayment;
 use App\Notifications\OrderPlaced;
 use App\Notifications\WalletCharged;
+use App\OrderStatus;
 use App\PaymentMethod;
 use App\PaymentStatus;
 use Illuminate\Support\Facades\DB;
@@ -85,6 +87,64 @@ class CheckoutService
             ]);
 
             $user->notify(new OrderPlaced($order));
+
+            return $order->fresh();
+        });
+    }
+
+    /**
+     * Place an order to be paid by card-to-card transfer. Unlike the other
+     * methods the order exists before the money does: this locks the price the
+     * customer has to transfer, and an admin confirms the payment later.
+     */
+    public function createCardPaymentOrder(
+        User $user,
+        array $orderData,
+        array $variantIds,
+        float $amount,
+        array $optionIdsByVariant = []
+    ): Order {
+        if (CardPaymentService::destinationCard() === null) {
+            throw new RuntimeException(
+                'پرداخت کارت به کارت در حال حاضر فعال نیست.'
+            );
+        }
+
+        return DB::transaction(function () use (
+            $user,
+            $orderData,
+            $variantIds,
+            $amount,
+            $optionIdsByVariant
+        ) {
+            $snapshot = $this->buildCheckoutSnapshot(
+                $orderData,
+                $variantIds,
+                $amount,
+                $optionIdsByVariant
+            );
+
+            $order = $this->createOrderFromSnapshot(
+                $user,
+                $orderData,
+                $snapshot['items'],
+                $snapshot['total'],
+                OrderStatus::AwaitingPayment,
+                PaymentStatus::Pending
+            );
+
+            $order->update([
+                'payment_due_at' => now()->addHours(CardPaymentService::paymentHours()),
+            ]);
+
+            $this->paymentService->createPendingPayment(
+                $user,
+                $snapshot['total'],
+                PaymentMethod::CardToCard,
+                $order->id
+            );
+
+            $user->notify(new OrderAwaitingCardPayment($order));
 
             return $order->fresh();
         });
@@ -489,15 +549,17 @@ class CheckoutService
         User $user,
         array $orderData,
         array $items,
-        float $amount
+        float $amount,
+        OrderStatus $status = OrderStatus::Pending,
+        PaymentStatus $paymentStatus = PaymentStatus::Paid
     ): Order {
         $order = Order::create([
             'user_id' => $user->id,
             'console_type' => $orderData['console_type'],
             'console_note' => $orderData['console_note'] ?? null,
             'total' => $amount,
-            'status' => 'pending',
-            'payment_status' => 'paid',
+            'status' => $status,
+            'payment_status' => $paymentStatus,
         ]);
 
         foreach ($items as $item) {

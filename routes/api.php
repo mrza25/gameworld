@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AdminCardPaymentController;
 use App\Http\Controllers\Api\AdminConsoleController;
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\AdminNotificationController;
@@ -101,6 +102,9 @@ Route::middleware('throttle:financial')->group(function () {
     Route::get('/orders/payment/callback', [OrderController::class, 'callback'])->name('api.orders.callback');
 });
 
+// Card-to-card receipts are private. The signed, short-lived link is the permission.
+Route::get('/receipts/{payment}', [OrderController::class, 'showReceipt'])->middleware('signed:relative')->name('api.receipts.show');
+
 /*
 |--------------------------------------------------------------------------
 | Protected Customer Routes
@@ -111,11 +115,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/wallet', [WalletController::class, 'index'])->name('api.wallet.index');
     Route::get('/wallet/transactions', [WalletController::class, 'transactions'])->name('api.wallet.transactions');
     Route::post('/wallet/charge', [WalletController::class, 'charge'])->middleware('throttle:financial')->name('api.wallet.charge');
+    Route::get('/wallet/charges', [WalletController::class, 'cardCharges'])->name('api.wallet.charges');
+    Route::post('/wallet/charges/{id}/receipt', [WalletController::class, 'uploadChargeReceipt'])->whereNumber('id')->middleware('throttle:financial')->name('api.wallet.charges.receipt');
 
     // Orders & Checkout
     Route::get('/orders', [OrderController::class, 'index'])->name('api.orders.index');
     Route::get('/orders/{id}', [OrderController::class, 'show'])->name('api.orders.show');
     Route::post('/orders/{id}/cancel', [OrderController::class, 'cancel'])->name('api.orders.cancel');
+    Route::post('/orders/{id}/receipt', [OrderController::class, 'uploadReceipt'])->middleware('throttle:financial')->name('api.orders.receipt');
+    Route::get('/payment-methods', [OrderController::class, 'paymentMethods'])->name('api.payment-methods');
     Route::post('/orders/checkout', [OrderController::class, 'checkout'])->middleware('throttle:financial')->name('api.orders.checkout');
     Route::post('/orders', [OrderController::class, 'checkout'])->middleware('throttle:financial');
     Route::post('/checkout', [OrderController::class, 'checkout'])->middleware('throttle:financial');
@@ -148,6 +156,8 @@ Route::middleware(['auth:sanctum', AdminMiddleware::class])
         Route::patch('/orders/{id}', [AdminController::class, 'updateOrder'])->name('api.admin.orders.update');
         Route::match(['patch', 'post'], '/orders/{id}/status', [AdminController::class, 'updateOrderStatus'])->name('api.admin.orders.status');
         Route::patch('/orders/{id}/payment-status', [AdminController::class, 'updatePaymentStatus'])->name('api.admin.orders.payment-status');
+        Route::post('/orders/{id}/receipt/approve', [AdminCardPaymentController::class, 'approve'])->name('api.admin.orders.receipt.approve');
+        Route::post('/orders/{id}/receipt/reject', [AdminCardPaymentController::class, 'reject'])->name('api.admin.orders.receipt.reject');
         Route::patch('/orders/{id}/items/{itemId}/installation-status', [AdminController::class, 'updateItemInstallationStatus'])->name('api.admin.orders.items.installation');
 
         // Users Management
@@ -171,6 +181,11 @@ Route::middleware(['auth:sanctum', AdminMiddleware::class])
         Route::post('/consoles', [AdminConsoleController::class, 'store'])->name('api.admin.consoles.store');
         Route::match(['put', 'patch', 'post'], '/consoles/{platform}', [AdminConsoleController::class, 'update'])->name('api.admin.consoles.update');
         Route::delete('/consoles/{platform}', [AdminConsoleController::class, 'destroy'])->name('api.admin.consoles.delete');
+
+        // Card-to-card wallet top-ups
+        Route::get('/wallet-charges', [AdminCardPaymentController::class, 'walletCharges'])->name('api.admin.wallet-charges');
+        Route::post('/wallet-charges/{id}/approve', [AdminCardPaymentController::class, 'approveWalletCharge'])->whereNumber('id')->name('api.admin.wallet-charges.approve');
+        Route::post('/wallet-charges/{id}/reject', [AdminCardPaymentController::class, 'rejectWalletCharge'])->whereNumber('id')->name('api.admin.wallet-charges.reject');
 
         // Announcements
         Route::get('/notifications', [AdminNotificationController::class, 'index'])->name('api.admin.notifications.index');

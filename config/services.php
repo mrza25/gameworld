@@ -42,6 +42,14 @@ return [
         'allow_fake_gateway' => (bool) env('PAYMENT_ALLOW_FAKE_GATEWAY', false),
     ],
 
+    'card_to_card' => [
+        // The method stays off until a card number is set.
+        'number' => env('CARD_TO_CARD_NUMBER'),
+        'holder' => env('CARD_TO_CARD_HOLDER'),
+        'bank' => env('CARD_TO_CARD_BANK'),
+        'payment_hours' => (int) env('CARD_TO_CARD_PAYMENT_HOURS', 24),
+    ],
+
     'otp' => [
         'resend_cooldown_seconds' => (int) env('OTP_RESEND_COOLDOWN', 60),
         'hourly_limit' => (int) env('OTP_HOURLY_LIMIT', 5),

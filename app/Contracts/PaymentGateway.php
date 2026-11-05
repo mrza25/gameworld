@@ -6,6 +6,11 @@ use App\Models\Payment;
 
 interface PaymentGateway
 {
+    /**
+     * Whether customers can pay through this gateway right now.
+     */
+    public function isAvailable(): bool;
+
     public function purchase(Payment $payment): string;
 
     /**
