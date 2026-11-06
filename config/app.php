@@ -68,6 +68,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Seed Password
+    |--------------------------------------------------------------------------
+    |
+    | The password of the test accounts made by the database seeder. Outside
+    | local development those accounts are only made when this is set.
+    |
+    */
+
+    'seed_password' => env('SEED_PASSWORD'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

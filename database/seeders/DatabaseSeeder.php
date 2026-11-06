@@ -17,12 +17,22 @@ class DatabaseSeeder extends Seeder
         $this->call(PlatformSeeder::class);
         $this->call(GameSeeder::class);
 
+        $password = config('app.seed_password')
+            ?: (app()->environment(['local', 'testing']) ? 'password123' : null);
+
+        // The default password is no secret, so it must not open accounts on a public server.
+        if (blank($password)) {
+            $this->command?->warn('Test accounts were skipped: set SEED_PASSWORD to create them.');
+
+            return;
+        }
+
         // Test Admin
         User::firstOrCreate(
             ['phonenumber' => '09120000000'],
             [
                 'name' => 'مدیر سیستم',
-                'password' => Hash::make('password123'),
+                'password' => Hash::make($password),
                 'is_admin' => true,
             ]
         );
@@ -32,7 +42,7 @@ class DatabaseSeeder extends Seeder
             ['phonenumber' => '09121111111'],
             [
                 'name' => 'کاربر تستی',
-                'password' => Hash::make('password123'),
+                'password' => Hash::make($password),
                 'is_admin' => false,
             ]
         );
