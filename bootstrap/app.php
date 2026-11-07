@@ -24,8 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->statefulApi();
         $middleware->throttleApi();
-        // Railway's deploy healthcheck calls /up on its own host name.
-        $middleware->trustHosts(at: ['^healthcheck\.railway\.app$']);
+        $middleware->trustHosts();
         $middleware->append(SecurityHeaders::class);
         $middleware->append(NormalizePersianInput::class);
         $middleware->encryptCookies(except: [

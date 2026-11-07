@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 /**
- * What a server behind a proxy, such as Railway, depends on.
+ * What a server behind a proxy depends on.
  */
 class DeploymentConfigTest extends TestCase
 {
@@ -50,7 +50,7 @@ class DeploymentConfigTest extends TestCase
         return [
             'X-Forwarded-For' => '203.0.113.9',
             'X-Forwarded-Proto' => 'https',
-            'X-Forwarded-Host' => 'gameworld.up.railway.app',
+            'X-Forwarded-Host' => 'api.gameworld.example',
         ];
     }
 
@@ -65,7 +65,7 @@ class DeploymentConfigTest extends TestCase
             ->assertJson([
                 'ip' => '203.0.113.9',
                 'secure' => true,
-                'url' => 'https://gameworld.up.railway.app/receipt',
+                'url' => 'https://api.gameworld.example/receipt',
             ]);
     }
 
@@ -80,16 +80,15 @@ class DeploymentConfigTest extends TestCase
             ->assertJson(['ip' => '127.0.0.1', 'secure' => false]);
     }
 
-    public function test_only_the_app_and_the_railway_healthcheck_hosts_are_trusted(): void
+    public function test_only_the_app_host_is_trusted(): void
     {
         $this->app['env'] = 'staging';
-        config(['app.url' => 'https://gameworld.up.railway.app']);
+        config(['app.url' => 'https://api.gameworld.example']);
 
-        $this->get('https://gameworld.up.railway.app/up')->assertOk();
-        $this->get('http://healthcheck.railway.app/up')->assertOk();
+        $this->get('https://api.gameworld.example/up')->assertOk();
 
         $this->get('https://attacker.example/up')->assertBadRequest();
-        $this->get('https://healthcheck.railway.app.attacker.example/up')->assertBadRequest();
+        $this->get('https://api.gameworld.example.attacker.example/up')->assertBadRequest();
     }
 
     public function test_extra_frontend_origins_can_be_allowed(): void
