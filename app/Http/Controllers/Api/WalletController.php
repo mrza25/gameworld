@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Contracts\PaymentGateway;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreReceiptRequest;
 use App\Models\Payment;
 use App\Models\WalletTransaction;
 use App\PaymentMethod;
@@ -173,14 +174,12 @@ class WalletController extends Controller
     /**
      * Upload the receipt of one of the customer's card-to-card top-ups.
      */
-    public function uploadChargeReceipt(Request $request, int $id): JsonResponse
+    public function uploadChargeReceipt(StoreReceiptRequest $request, int $id): JsonResponse
     {
         $charge = $request->user()->payments()->cardWalletCharges()->findOrFail($id);
 
-        $validated = $request->validate(CardPaymentService::RECEIPT_RULES, CardPaymentService::RECEIPT_MESSAGES);
-
         try {
-            $charge = $this->cardPaymentService->submitWalletChargeReceipt($charge, $validated['receipt']);
+            $charge = $this->cardPaymentService->submitWalletChargeReceipt($charge, $request->file('receipt'), $request->paymentDetails());
         } catch (RuntimeException $e) {
             return response()->json([
                 'ok' => false,

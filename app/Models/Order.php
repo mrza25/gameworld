@@ -18,10 +18,27 @@ class Order extends Model
 {
     use HasFactory;
 
+    public const NUMBER_PREFIX = 'GW-';
+
+    /**
+     * Looks alike when read aloud or copied by hand, so left out of order numbers.
+     */
+    private const NUMBER_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+
+    public const INSTALLATION_LABELS = [
+        'pending' => 'در انتظار نصب',
+        'installing' => 'در حال نصب',
+        'installed' => 'نصب شده',
+    ];
+
     protected $fillable = [
+        'number',
         'user_id',
         'console_type',
         'console_note',
+        'subtotal',
+        'discount_amount',
+        'coupon_code',
         'total',
         'status',
         'payment_status',
@@ -31,9 +48,80 @@ class Order extends Model
     protected $casts = [
         'status' => OrderStatus::class,
         'payment_status' => PaymentStatus::class,
+        'subtotal' => 'decimal:2',
+        'discount_amount' => 'decimal:2',
         'total' => 'decimal:2',
         'payment_due_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $order) {
+            $order->number ??= self::generateNumber();
+        });
+
+        static::created(function (self $order) {
+            $order->recordHistory(OrderHistory::EVENT_CREATED, to: $order->status?->value);
+        });
+
+        static::updated(function (self $order) {
+            if ($order->wasChanged('status')) {
+                $order->recordHistory(OrderHistory::EVENT_STATUS, $order->getRawOriginal('status'), $order->status?->value);
+            }
+
+            if ($order->wasChanged('payment_status')) {
+                $order->recordHistory(OrderHistory::EVENT_PAYMENT, $order->getRawOriginal('payment_status'), $order->payment_status?->value);
+            }
+        });
+    }
+
+    /**
+     * A number to show customers, like GW-261107-8F3KP. It is random, so unlike
+     * the id it cannot be guessed and does not reveal how many orders exist.
+     */
+    public static function generateNumber(): string
+    {
+        do {
+            $suffix = '';
+
+            for ($i = 0; $i < 5; $i++) {
+                $suffix .= self::NUMBER_ALPHABET[random_int(0, strlen(self::NUMBER_ALPHABET) - 1)];
+            }
+
+            $number = self::NUMBER_PREFIX.now()->format('ymd').'-'.$suffix;
+        } while (self::query()->where('number', $number)->exists());
+
+        return $number;
+    }
+
+    public function histories(): HasMany
+    {
+        return $this->hasMany(OrderHistory::class)->orderBy('id');
+    }
+
+    public function recordHistory(string $event, ?string $from = null, ?string $to = null, ?string $note = null): void
+    {
+        $this->histories()->create([
+            'user_id' => auth()->id(),
+            'event' => $event,
+            'from_value' => $from,
+            'to_value' => $to,
+            'note' => $note,
+        ]);
+    }
+
+    /**
+     * Who did what is only for admins, so customers get the events without it.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function historyArray(bool $withActor = false): array
+    {
+        return $this->histories
+            ->map(fn (OrderHistory $history) => $history->toApiArray($withActor))
+            ->values()
+            ->all();
+    }
 
     public function user(): BelongsTo
     {
@@ -46,11 +134,18 @@ class Order extends Model
     // }
 
     /**
-     * Turn an order reference as shown to users ("123", "#123", "ORD-123") into its id.
+     * Turn an order reference as shown to users ("123", "#123", "ORD-123",
+     * "GW-261107-8F3KP") into its id. An unknown number gives 0, which finds nothing.
      */
     public static function idFromReference(int|string $reference): int
     {
-        return (int) preg_replace('/^(#|ORD-)/i', '', trim((string) $reference));
+        $reference = mb_strtoupper(trim((string) $reference));
+
+        if (str_starts_with($reference, self::NUMBER_PREFIX)) {
+            return (int) self::query()->where('number', $reference)->value('id');
+        }
+
+        return (int) preg_replace('/^(#|ORD-)/', '', $reference);
     }
 
     /**
@@ -134,6 +229,8 @@ class Order extends Model
                 'reviewed_at' => $payment->reviewed_at?->toIso8601String(),
                 'reviewed_by' => $payment->reviewer ? ['id' => $payment->reviewer->id, 'name' => $payment->reviewer->name] : null,
                 'reject_reason' => $payment->review_note,
+                'tracking_code' => $payment->tracking_code,
+                'card_last4' => $payment->card_last4,
             ] + $duplicates[$payment->id])
             ->values()
             ->all();
@@ -163,6 +260,8 @@ class Order extends Model
             'receipt_uploaded_at' => $payment->receipt_uploaded_at?->toIso8601String(),
             'reviewed_at' => $payment->reviewed_at?->toIso8601String(),
             'reject_reason' => $reviewStatus === Payment::REVIEW_REJECTED ? $payment->review_note : null,
+            'tracking_code' => $payment->tracking_code,
+            'card_last4' => $payment->card_last4,
         ];
     }
 
@@ -199,29 +298,6 @@ class Order extends Model
 
     public function toApiArray(): array
     {
-        $statusMap = [
-            'awaiting_payment' => 'در انتظار تأیید پرداخت',
-            'pending' => 'در حال بررسی',
-            'processing' => 'در حال پردازش',
-            'completed' => 'تکمیل شده',
-            'cancelled' => 'لغو شده',
-        ];
-
-        $paymentMap = [
-            'unpaid' => 'در انتظار پرداخت',
-            'partial' => 'پرداخت ناقص',
-            'paid' => 'پرداخت شده',
-            'failed' => 'ناموفق',
-            'refunded' => 'مسترد شده',
-            'pending' => 'در انتظار پرداخت',
-        ];
-
-        $installMap = [
-            'pending' => 'در انتظار نصب',
-            'installing' => 'در حال نصب',
-            'installed' => 'نصب شده',
-        ];
-
         $statusValue = $this->status instanceof \BackedEnum ? $this->status->value : $this->status;
         $paymentValue = $this->payment_status instanceof \BackedEnum ? $this->payment_status->value : $this->payment_status;
 
@@ -236,6 +312,7 @@ class Order extends Model
         return [
             'id' => $this->id,
             'orderId' => '#'.$this->id,
+            'number' => $this->number,
             'paymentMethod' => $paymentMethod,
             'card_payment' => $this->cardPaymentArray(),
             'cancellable' => $this->isCancellableByCustomer(),
@@ -247,9 +324,12 @@ class Order extends Model
             'consoleNote' => $this->console_note,
             'amount' => (float) $this->total,
             'total' => (float) $this->total,
-            'status' => $statusMap[$statusValue] ?? $statusValue,
+            'subtotal' => (float) ($this->subtotal ?? $this->total),
+            'discount_amount' => (float) $this->discount_amount,
+            'coupon_code' => $this->coupon_code,
+            'status' => $this->status?->label() ?? $statusValue,
             'statusRaw' => $statusValue,
-            'paymentStatus' => $paymentMap[$paymentValue] ?? $paymentValue,
+            'paymentStatus' => $this->payment_status?->label() ?? $paymentValue,
             'paymentStatusRaw' => $paymentValue,
             'date' => Jalali::fromDateTime($this->created_at),
             'time' => $this->created_at?->format('H:i'),
@@ -273,13 +353,14 @@ class Order extends Model
                     'platform_info' => $item->gameVariant->platform?->toConsoleArray(),
                     'size' => (float) $item->gameVariant->size,
                 ] : null,
-                'title' => $item->game?->title,
+                'title' => $item->title ?? $item->game?->title,
+                'platform_name' => $item->platform_name ?? $item->gameVariant?->platform?->name,
                 'genre' => $item->game?->genre,
                 'price' => (float) $item->price,
                 'size' => $item->gameVariant ? (float) $item->gameVariant->size : null,
                 'image' => $item->game?->coverUrl(),
                 'quantity' => $item->quantity,
-                'installStatus' => $installMap[$item->installation_status] ?? $item->installation_status,
+                'installStatus' => self::INSTALLATION_LABELS[$item->installation_status] ?? $item->installation_status,
                 'installStatusRaw' => $item->installation_status,
                 'installed_at' => $item->installed_at?->format('Y-m-d H:i'),
                 'selected_option' => $item->selectedOption ? [

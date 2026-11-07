@@ -421,6 +421,60 @@ class CardWalletChargeTest extends TestCase
         $this->assertSame([$secondCharge->id], $rows[$firstCharge->id]['duplicate_wallet_charge_ids']);
     }
 
+    public function test_receipt_details_are_cleaned_up_and_shown(): void
+    {
+        $charge = $this->openCharge();
+
+        $this->actingAs($this->customer)->post(route('api.wallet.charges.receipt', $charge->id), [
+            'receipt' => UploadedFile::fake()->image('r.jpg', 100, 100),
+            'tracking_code' => '۱۲۳ ۴۵۶-۷۸',
+            'card_last4' => '۴۳۲۱',
+        ], ['Accept' => 'application/json'])
+            ->assertOk()
+            ->assertJsonPath('data.tracking_code', '12345678')
+            ->assertJsonPath('data.card_last4', '4321');
+
+        $this->actingAs($this->admin)
+            ->getJson(route('api.admin.wallet-charges'))
+            ->assertJsonPath('data.0.tracking_code', '12345678');
+    }
+
+    public function test_wrong_receipt_details_are_refused(): void
+    {
+        $charge = $this->openCharge();
+
+        foreach ([['tracking_code' => '12'], ['tracking_code' => 'کد!'], ['card_last4' => '123'], ['card_last4' => 'abcd']] as $details) {
+            $this->actingAs($this->customer)->post(
+                route('api.wallet.charges.receipt', $charge->id),
+                ['receipt' => UploadedFile::fake()->image('r.jpg', 100, 100)] + $details,
+                ['Accept' => 'application/json']
+            )->assertUnprocessable();
+        }
+
+        $this->assertSame([], Storage::disk('local')->allFiles());
+    }
+
+    public function test_the_same_tracking_code_is_flagged_even_with_a_different_photo(): void
+    {
+        $send = fn (Payment $charge, int $size) => $this->actingAs($this->customer)->post(route('api.wallet.charges.receipt', $charge->id), [
+            'receipt' => UploadedFile::fake()->image('r.jpg', $size, $size),
+            'tracking_code' => '987654321',
+        ], ['Accept' => 'application/json'])->assertOk();
+
+        $first = $this->openCharge();
+        $send($first, 100);
+
+        $second = $this->openCharge();
+        $send($second, 300);
+
+        $this->assertNotSame($first->fresh()->receipt_hash, $second->fresh()->receipt_hash);
+
+        $rows = collect($this->actingAs($this->admin)->getJson(route('api.admin.wallet-charges'))->json('data'))->keyBy('id');
+
+        $this->assertSame([$second->id], $rows[$first->id]['duplicate_wallet_charge_ids']);
+        $this->assertSame([$first->id], $rows[$second->id]['duplicate_wallet_charge_ids']);
+    }
+
     public function test_charges_with_no_receipt_expire_but_those_under_review_stay(): void
     {
         $abandoned = $this->openCharge();

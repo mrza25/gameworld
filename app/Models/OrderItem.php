@@ -15,6 +15,8 @@ class OrderItem extends Model
         'order_id',
         'game_id',
         'game_variant_id',
+        'title',
+        'platform_name',
         'quantity',
         'price',
         'installation_status',
@@ -25,6 +27,26 @@ class OrderItem extends Model
         'price' => 'decimal:2',
         'installed_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        // What was bought is copied, so renaming or removing a game never changes an old order.
+        static::creating(function (self $item) {
+            $item->title ??= Game::query()->whereKey($item->game_id)->value('title');
+            $item->platform_name ??= GameVariant::query()->with('platform')->find($item->game_variant_id)?->platform?->name;
+        });
+
+        static::updated(function (self $item) {
+            if ($item->wasChanged('installation_status')) {
+                $item->order()->first()?->recordHistory(
+                    OrderHistory::EVENT_INSTALLATION,
+                    $item->getRawOriginal('installation_status'),
+                    $item->installation_status,
+                    $item->title
+                );
+            }
+        });
+    }
 
     public function order(): BelongsTo
     {

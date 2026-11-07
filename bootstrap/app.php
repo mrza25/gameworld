@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Middleware\ExtractTokenFromCookie;
+use App\Http\Middleware\NormalizePersianInput;
 use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -26,6 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Railway's deploy healthcheck calls /up on its own host name.
         $middleware->trustHosts(at: ['^healthcheck\.railway\.app$']);
         $middleware->append(SecurityHeaders::class);
+        $middleware->append(NormalizePersianInput::class);
         $middleware->encryptCookies(except: [
             'gw_token',
         ]);

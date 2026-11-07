@@ -40,6 +40,8 @@ class Payment extends Model
         'receipt_path',
         'receipt_hash',
         'receipt_uploaded_at',
+        'tracking_code',
+        'card_last4',
         'reviewed_by',
         'reviewed_at',
         'review_note',
@@ -98,25 +100,30 @@ class Payment extends Model
     }
 
     /**
-     * Where else each payment's receipt file was used, keyed by payment id. The
-     * same file on another order or top-up usually means one transfer is being
-     * claimed twice. Earlier attempts on the same order don't count.
+     * Where else each payment's receipt was used, keyed by payment id. The same
+     * file or bank tracking code on another order or top-up usually means one
+     * transfer is being claimed twice. Earlier attempts on the same order don't count.
      *
      * @param  Collection<int, Payment>  $payments
      * @return array<int, array{duplicate_order_ids: list<int>, duplicate_wallet_charge_ids: list<int>}>
      */
     public static function duplicateReceipts(Collection $payments): array
     {
-        $paymentsByHash = self::query()
-            ->whereIn('receipt_hash', $payments->pluck('receipt_hash')->filter()->all())
-            ->get(['id', 'order_id', 'receipt_hash'])
-            ->groupBy('receipt_hash');
+        $candidates = self::query()
+            ->where(fn (Builder $query) => $query
+                ->whereIn('receipt_hash', $payments->pluck('receipt_hash')->filter()->all())
+                ->orWhereIn('tracking_code', $payments->pluck('tracking_code')->filter()->all()))
+            ->get(['id', 'order_id', 'receipt_hash', 'tracking_code']);
 
         return $payments
-            ->mapWithKeys(function (Payment $payment) use ($paymentsByHash) {
-                $others = collect($paymentsByHash[$payment->receipt_hash] ?? [])->reject(
-                    fn (Payment $other) => $other->id === $payment->id
-                        || ($payment->order_id !== null && $other->order_id === $payment->order_id)
+            ->mapWithKeys(function (Payment $payment) use ($candidates) {
+                $others = $candidates->filter(
+                    fn (Payment $other) => $other->id !== $payment->id
+                        && ($payment->order_id === null || $other->order_id !== $payment->order_id)
+                        && (
+                            ($payment->receipt_hash && $other->receipt_hash === $payment->receipt_hash)
+                            || ($payment->tracking_code && $other->tracking_code === $payment->tracking_code)
+                        )
                 );
 
                 return [$payment->id => [
@@ -149,6 +156,8 @@ class Payment extends Model
             'receipt_uploaded_at' => $this->receipt_uploaded_at?->toIso8601String(),
             'reviewed_at' => $this->reviewed_at?->toIso8601String(),
             'reject_reason' => $reviewStatus === self::REVIEW_REJECTED ? $this->review_note : null,
+            'tracking_code' => $this->tracking_code,
+            'card_last4' => $this->card_last4,
             'created_at' => $this->created_at?->toIso8601String(),
         ];
     }

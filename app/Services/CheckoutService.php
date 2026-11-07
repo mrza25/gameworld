@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Contracts\PaymentGateway;
+use App\Models\Coupon;
 use App\Models\GameVariant;
 use App\Models\Order;
 use App\Models\Payment;
@@ -23,7 +24,8 @@ class CheckoutService
     public function __construct(
         private WalletService $walletService,
         private PaymentService $paymentService,
-        private PaymentGateway $paymentGateway
+        private PaymentGateway $paymentGateway,
+        private CouponService $couponService
     ) {}
 
     /**
@@ -35,14 +37,16 @@ class CheckoutService
         array $orderData,
         array $variantIds,
         float $amount,
-        array $optionIdsByVariant = []
+        array $optionIdsByVariant = [],
+        ?string $couponCode = null
     ): Order {
         return DB::transaction(function () use (
             $user,
             $orderData,
             $variantIds,
             $amount,
-            $optionIdsByVariant
+            $optionIdsByVariant,
+            $couponCode
         ) {
             $snapshot = $this->buildCheckoutSnapshot(
                 $orderData,
@@ -51,9 +55,11 @@ class CheckoutService
                 $optionIdsByVariant
             );
 
+            $pricing = $this->priceWithCoupon($user, $snapshot['total'], $couponCode);
+
             $payment = $this->paymentService->createPendingPayment(
                 $user,
-                $snapshot['total'],
+                $pricing['total'],
                 PaymentMethod::Wallet,
                 null,
                 [
@@ -65,7 +71,7 @@ class CheckoutService
 
             $this->walletService->debit(
                 $user,
-                $snapshot['total'],
+                $pricing['total'],
                 'payment-'.$payment->id,
                 'Payment for order'
             );
@@ -79,7 +85,10 @@ class CheckoutService
                 $user,
                 $orderData,
                 $snapshot['items'],
-                $snapshot['total']
+                $pricing['total'],
+                OrderStatus::Pending,
+                PaymentStatus::Paid,
+                $pricing
             );
 
             $payment->update([
@@ -102,7 +111,8 @@ class CheckoutService
         array $orderData,
         array $variantIds,
         float $amount,
-        array $optionIdsByVariant = []
+        array $optionIdsByVariant = [],
+        ?string $couponCode = null
     ): Order {
         if (CardPaymentService::destinationCard() === null) {
             throw new RuntimeException(
@@ -115,7 +125,8 @@ class CheckoutService
             $orderData,
             $variantIds,
             $amount,
-            $optionIdsByVariant
+            $optionIdsByVariant,
+            $couponCode
         ) {
             $snapshot = $this->buildCheckoutSnapshot(
                 $orderData,
@@ -124,13 +135,16 @@ class CheckoutService
                 $optionIdsByVariant
             );
 
+            $pricing = $this->priceWithCoupon($user, $snapshot['total'], $couponCode);
+
             $order = $this->createOrderFromSnapshot(
                 $user,
                 $orderData,
                 $snapshot['items'],
-                $snapshot['total'],
+                $pricing['total'],
                 OrderStatus::AwaitingPayment,
-                PaymentStatus::Pending
+                PaymentStatus::Pending,
+                $pricing
             );
 
             $order->update([
@@ -139,7 +153,7 @@ class CheckoutService
 
             $this->paymentService->createPendingPayment(
                 $user,
-                $snapshot['total'],
+                $pricing['total'],
                 PaymentMethod::CardToCard,
                 $order->id
             );
@@ -159,14 +173,16 @@ class CheckoutService
         array $orderData,
         array $variantIds,
         float $amount,
-        array $optionIdsByVariant = []
+        array $optionIdsByVariant = [],
+        ?string $couponCode = null
     ): Payment {
         return DB::transaction(function () use (
             $user,
             $orderData,
             $variantIds,
             $amount,
-            $optionIdsByVariant
+            $optionIdsByVariant,
+            $couponCode
         ) {
             $snapshot = $this->buildCheckoutSnapshot(
                 $orderData,
@@ -175,15 +191,23 @@ class CheckoutService
                 $optionIdsByVariant
             );
 
+            $pricing = $this->priceWithCoupon($user, $snapshot['total'], $couponCode);
+
             $payment = $this->paymentService->createPendingPayment(
                 $user,
-                $snapshot['total'],
+                $pricing['total'],
                 PaymentMethod::Gateway,
                 null,
                 [
                     'console_type' => $orderData['console_type'],
                     'console_note' => $orderData['console_note'] ?? null,
                     'items' => $snapshot['items'],
+                    // The use is only counted once the gateway confirms payment.
+                    'coupon' => $pricing['coupon'] ? [
+                        'id' => $pricing['coupon']->id,
+                        'code' => $pricing['coupon']->code,
+                        'discount' => number_format($pricing['discount'], 2, '.', ''),
+                    ] : null,
                 ]
             );
 
@@ -392,10 +416,13 @@ class CheckoutService
                 $metadata['items']
             );
 
+            $discount = (float) ($metadata['coupon']['discount'] ?? 0);
+            $payable = round($total - $discount, 2);
+
             if (
                 $total <= 0 ||
                 $this->toCents($payment->amount) !==
-                    $this->toCents($total)
+                    $this->toCents($payable)
             ) {
                 throw new RuntimeException(
                     'Payment amount does not match the order items.'
@@ -416,7 +443,16 @@ class CheckoutService
                     'console_note' => $metadata['console_note'] ?? null,
                 ],
                 $metadata['items'],
-                $total
+                $payable,
+                OrderStatus::Pending,
+                PaymentStatus::Paid,
+                [
+                    'subtotal' => $total,
+                    'discount' => $discount,
+                    'coupon_code' => $metadata['coupon']['code'] ?? null,
+                    // The customer already paid this price, so it holds even if the coupon ran out meanwhile.
+                    'coupon' => isset($metadata['coupon']['id']) ? Coupon::query()->lockForUpdate()->find($metadata['coupon']['id']) : null,
+                ]
             );
 
             $payment->update([
@@ -511,6 +547,8 @@ class CheckoutService
             $items[] = [
                 'game_variant_id' => $variant->id,
                 'game_id' => $variant->game_id,
+                'title' => $variant->game->title,
+                'platform_name' => $variant->platform->name,
                 'quantity' => 1,
                 'price' => number_format($price, 2, '.', ''),
                 'option' => $option ? [
@@ -544,6 +582,8 @@ class CheckoutService
     /**
      * Create the order using the prices saved in the payment snapshot.
      * Current variant prices are deliberately not queried here.
+     *
+     * @param  array{subtotal?: float, discount?: float, coupon?: ?Coupon, coupon_code?: ?string}  $pricing
      */
     private function createOrderFromSnapshot(
         User $user,
@@ -551,12 +591,16 @@ class CheckoutService
         array $items,
         float $amount,
         OrderStatus $status = OrderStatus::Pending,
-        PaymentStatus $paymentStatus = PaymentStatus::Paid
+        PaymentStatus $paymentStatus = PaymentStatus::Paid,
+        array $pricing = []
     ): Order {
         $order = Order::create([
             'user_id' => $user->id,
             'console_type' => $orderData['console_type'],
             'console_note' => $orderData['console_note'] ?? null,
+            'subtotal' => $pricing['subtotal'] ?? $amount,
+            'discount_amount' => $pricing['discount'] ?? 0,
+            'coupon_code' => $pricing['coupon_code'] ?? null,
             'total' => $amount,
             'status' => $status,
             'payment_status' => $paymentStatus,
@@ -566,6 +610,8 @@ class CheckoutService
             $orderItem = $order->items()->create([
                 'game_id' => $item['game_id'],
                 'game_variant_id' => $item['game_variant_id'],
+                'title' => $item['title'] ?? null,
+                'platform_name' => $item['platform_name'] ?? null,
                 'quantity' => $item['quantity'],
                 'price' => $item['price'],
                 'installation_status' => 'pending',
@@ -580,7 +626,34 @@ class CheckoutService
             }
         }
 
+        if (($pricing['coupon'] ?? null) !== null) {
+            $this->couponService->redeem($pricing['coupon'], $order, $pricing['discount']);
+        }
+
         return $order;
+    }
+
+    /**
+     * What the customer pays after a coupon. The coupon stays locked until the
+     * transaction ends, so its limits cannot be passed by orders placed together.
+     *
+     * @return array{subtotal: float, discount: float, total: float, coupon: ?Coupon, coupon_code: ?string}
+     */
+    private function priceWithCoupon(User $user, float $subtotal, ?string $couponCode): array
+    {
+        if (blank($couponCode)) {
+            return ['subtotal' => $subtotal, 'discount' => 0.0, 'total' => $subtotal, 'coupon' => null, 'coupon_code' => null];
+        }
+
+        $quote = $this->couponService->quote($couponCode, $user, $subtotal);
+
+        return [
+            'subtotal' => $subtotal,
+            'discount' => $quote['discount'],
+            'total' => $quote['payable'],
+            'coupon' => $quote['coupon'],
+            'coupon_code' => $quote['coupon']->code,
+        ];
     }
 
     /**

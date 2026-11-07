@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Contracts\PaymentGateway;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreReceiptRequest;
 use App\Models\Game;
 use App\Models\GameVariant;
 use App\Models\Order;
@@ -13,6 +14,7 @@ use App\PaymentMethod;
 use App\PaymentStatus;
 use App\Services\CardPaymentService;
 use App\Services\CheckoutService;
+use App\Services\CouponService;
 use App\Services\OrderCancellationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -78,10 +80,10 @@ class OrderController extends Controller
             : $request->user()->orders();
 
         $order = $query
-            ->with(['items.game', 'items.gameVariant.platform', 'items.selectedOption', 'payments'])
+            ->with(['items.game', 'items.gameVariant.platform', 'items.selectedOption', 'payments', 'histories'])
             ->findOrFail(Order::idFromReference($id));
 
-        $orderData = $this->transformOrder($order);
+        $orderData = $this->transformOrder($order) + ['timeline' => $order->historyArray()];
 
         return response()->json([
             'ok' => true,
@@ -137,14 +139,12 @@ class OrderController extends Controller
     /**
      * Upload the receipt of a card-to-card transfer for an order of the customer's.
      */
-    public function uploadReceipt(Request $request, int|string $id, CardPaymentService $cardPaymentService): JsonResponse
+    public function uploadReceipt(StoreReceiptRequest $request, int|string $id, CardPaymentService $cardPaymentService): JsonResponse
     {
         $order = $request->user()->orders()->findOrFail(Order::idFromReference($id));
 
-        $validated = $request->validate(CardPaymentService::RECEIPT_RULES, CardPaymentService::RECEIPT_MESSAGES);
-
         try {
-            $order = $cardPaymentService->submitReceipt($order, $validated['receipt']);
+            $order = $cardPaymentService->submitReceipt($order, $request->file('receipt'), $request->paymentDetails());
         } catch (RuntimeException $e) {
             return response()->json([
                 'ok' => false,
@@ -180,7 +180,7 @@ class OrderController extends Controller
      * When no console is sent it is inferred from the selected variants, and
      * when no method is sent the wallet is used if its balance covers the total.
      */
-    public function checkout(Request $request): JsonResponse
+    public function checkout(Request $request, CouponService $couponService): JsonResponse
     {
         if (! $request->has('method') && $request->has('payment_method')) {
             $request->merge(['method' => $request->input('payment_method')]);
@@ -218,12 +218,6 @@ class OrderController extends Controller
             'items.*.quantity.max' => 'هر بازی فقط یک بار روی کنسول نصب می‌شود؛ تعداد باید ۱ باشد.',
             'items.*.option_id.integer' => 'شناسه‌ی گزینه معتبر نیست.',
         ]);
-
-        if (! empty($validated['coupon_code'])) {
-            throw ValidationException::withMessages([
-                'coupon_code' => 'کد تخفیف معتبر نیست.',
-            ]);
-        }
 
         // Resolve variant IDs (supports variants[], items[], or games[] slugs/IDs)
         $rawVariantIds = $validated['variants'] ?? [];
@@ -335,8 +329,18 @@ class OrderController extends Controller
         }
 
         $total = $totalCents / 100;
+        $couponCode = $validated['coupon_code'] ?? null;
+        $payable = $total;
 
-        $validated['method'] ??= (float) ($request->user()->wallet?->balance ?? 0) >= $total ? 'wallet' : 'gateway';
+        if (filled($couponCode)) {
+            try {
+                $payable = $couponService->quote($couponCode, $request->user(), $total)['payable'];
+            } catch (RuntimeException $e) {
+                throw ValidationException::withMessages(['coupon_code' => $this->publicErrorMessage($e)]);
+            }
+        }
+
+        $validated['method'] ??= (float) ($request->user()->wallet?->balance ?? 0) >= $payable ? 'wallet' : 'gateway';
 
         // Wallet Checkout
         if ($validated['method'] === 'wallet') {
@@ -349,7 +353,8 @@ class OrderController extends Controller
                     ],
                     $variantIds,
                     $total,
-                    $optionIdsByVariant
+                    $optionIdsByVariant,
+                    $couponCode
                 );
 
                 $orderData = $this->transformOrder($order->fresh(['items.game', 'items.gameVariant.platform', 'items.selectedOption']));
@@ -392,7 +397,8 @@ class OrderController extends Controller
                     ],
                     $variantIds,
                     $total,
-                    $optionIdsByVariant
+                    $optionIdsByVariant,
+                    $couponCode
                 );
             } catch (RuntimeException $e) {
                 return response()->json([
@@ -434,7 +440,8 @@ class OrderController extends Controller
                 ],
                 $variantIds,
                 $total,
-                $optionIdsByVariant
+                $optionIdsByVariant,
+                $couponCode
             );
 
             $callbackUrl = route('api.orders.callback', [

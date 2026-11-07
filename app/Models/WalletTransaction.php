@@ -25,6 +25,7 @@ class WalletTransaction extends Model
         'amount',
         'balance_after',
         'reference',
+        'idempotency_key',
         'description',
     ];
 
@@ -32,6 +33,19 @@ class WalletTransaction extends Model
         'amount' => 'decimal:2',
         'balance_after' => 'decimal:2',
     ];
+
+    protected static function booted(): void
+    {
+        // A payment or refund happens once, so the database refuses a second row for it.
+        // Admin adjustments share one reference and can repeat, so they get no key.
+        static::creating(function (self $transaction) {
+            $reference = (string) $transaction->reference;
+
+            if (Str::startsWith($reference, ['payment-', 'order-refund-'])) {
+                $transaction->idempotency_key ??= $reference;
+            }
+        });
+    }
 
     public function wallet(): BelongsTo
     {

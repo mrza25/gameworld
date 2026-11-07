@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Order;
+use App\Models\OrderHistory;
 use App\Models\Payment;
 use App\Models\User;
 use App\Notifications\CardPaymentReviewed;
@@ -31,17 +32,6 @@ class CardPaymentService
      * Receipts hold banking details, so they live on the private disk.
      */
     public const RECEIPT_DISK = 'local';
-
-    public const RECEIPT_RULES = [
-        'receipt' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
-    ];
-
-    public const RECEIPT_MESSAGES = [
-        'receipt.required' => 'عکس رسید را انتخاب کنید.',
-        'receipt.image' => 'رسید باید عکس باشد.',
-        'receipt.mimes' => 'رسید باید با فرمت jpg، png یا webp باشد.',
-        'receipt.max' => 'حجم عکس رسید حداکثر ۵ مگابایت است.',
-    ];
 
     public function __construct(
         private PaymentService $paymentService,
@@ -77,11 +67,13 @@ class CardPaymentService
      * Store a receipt for an order that is waiting for payment. A rejected
      * receipt stays on record, so the new one opens a new payment.
      *
+     * @param  array{tracking_code?: ?string, card_last4?: ?string}  $details
+     *
      * @throws RuntimeException when the order cannot take a receipt right now
      */
-    public function submitReceipt(Order $order, UploadedFile $receipt): Order
+    public function submitReceipt(Order $order, UploadedFile $receipt, array $details = []): Order
     {
-        return $this->storingReceipt($receipt, function (array $receiptFields) use ($order) {
+        return $this->storingReceipt($receipt, function (array $receiptFields) use ($order, $details) {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
 
             if (! $order->isAwaitingPayment()) {
@@ -103,7 +95,8 @@ class CardPaymentService
                 );
             }
 
-            $payment->update($receiptFields);
+            $payment->update($receiptFields + $details);
+            $order->recordHistory(OrderHistory::EVENT_RECEIPT_SUBMITTED);
             $this->alertAdmins($payment);
 
             return $order;
@@ -148,6 +141,7 @@ class CardPaymentService
             $this->markRejected($payment, $admin, $reason);
 
             $order->update(['payment_due_at' => now()->addHours(self::paymentHours())]);
+            $order->recordHistory(OrderHistory::EVENT_RECEIPT_REJECTED, note: $reason);
 
             $order->user?->notify(new CardPaymentReviewed($order, false, $reason));
 
@@ -174,11 +168,13 @@ class CardPaymentService
      * Store the receipt of a wallet top-up. Unlike an order there is nothing to
      * keep waiting, so a rejected top-up is final and the customer opens a new one.
      *
+     * @param  array{tracking_code?: ?string, card_last4?: ?string}  $details
+     *
      * @throws RuntimeException when the top-up cannot take a receipt right now
      */
-    public function submitWalletChargeReceipt(Payment $payment, UploadedFile $receipt): Payment
+    public function submitWalletChargeReceipt(Payment $payment, UploadedFile $receipt, array $details = []): Payment
     {
-        return $this->storingReceipt($receipt, function (array $receiptFields) use ($payment) {
+        return $this->storingReceipt($receipt, function (array $receiptFields) use ($payment, $details) {
             $payment = Payment::query()->cardWalletCharges()->lockForUpdate()->findOrFail($payment->id);
 
             if ($payment->hasReceiptInReview()) {
@@ -189,7 +185,7 @@ class CardPaymentService
                 throw new RuntimeException('این درخواست شارژ دیگر فعال نیست. لطفاً درخواست جدیدی ثبت کنید.');
             }
 
-            $payment->update($receiptFields);
+            $payment->update($receiptFields + $details);
             $this->alertAdmins($payment);
 
             return $payment;

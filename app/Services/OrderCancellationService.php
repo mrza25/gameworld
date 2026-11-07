@@ -13,7 +13,8 @@ use RuntimeException;
 class OrderCancellationService
 {
     public function __construct(
-        private WalletService $walletService
+        private WalletService $walletService,
+        private CouponService $couponService
     ) {}
 
     /**
@@ -76,6 +77,8 @@ class OrderCancellationService
 
             $order->status = OrderStatus::Cancelled;
             $order->save();
+
+            $this->couponService->release($order);
 
             $order->user?->notify(new OrderStatusUpdated($order));
 

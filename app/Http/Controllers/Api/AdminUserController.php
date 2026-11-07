@@ -194,6 +194,14 @@ class AdminUserController extends Controller
             ], 422);
         }
 
+        // These would be deleted with the user, and money records must outlive an account.
+        if ($user->payments()->exists() || $user->wallet?->transactions()->exists()) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'به دلیل وجود سوابق مالی، امکان حذف این کاربر وجود ندارد.',
+            ], 422);
+        }
+
         $user->delete();
 
         return response()->json([

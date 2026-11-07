@@ -80,6 +80,7 @@ class AdminOrderController extends Controller
                 if ($orderId !== null) {
                     $q->where('id', $orderId);
                 }
+                $q->orWhere('number', mb_strtoupper(trim($search)));
                 $q->orWhereHas('user', function ($uq) use ($search) {
                     $uq->where('name', 'like', "%{$search}%")
                         ->orWhere('phonenumber', 'like', "%{$search}%")
@@ -110,7 +111,10 @@ class AdminOrderController extends Controller
         $order = Order::with(['user', 'items.game', 'items.gameVariant.platform', 'items.selectedOption', 'payments.reviewer'])
             ->findOrFail(Order::idFromReference($id));
 
-        $orderData = $this->orderWithUser($order) + ['receipts' => $order->receiptHistoryArray()];
+        $orderData = $this->orderWithUser($order) + [
+            'receipts' => $order->receiptHistoryArray(),
+            'history' => $order->load('histories.user')->historyArray(withActor: true),
+        ];
 
         return response()->json([
             'ok' => true,

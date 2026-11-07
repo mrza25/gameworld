@@ -4,15 +4,18 @@ use App\Http\Controllers\Api\AdminBannerController;
 use App\Http\Controllers\Api\AdminCardPaymentController;
 use App\Http\Controllers\Api\AdminConsoleController;
 use App\Http\Controllers\Api\AdminController;
+use App\Http\Controllers\Api\AdminCouponController;
 use App\Http\Controllers\Api\AdminGameController;
 use App\Http\Controllers\Api\AdminNotificationController;
 use App\Http\Controllers\Api\AdminOrderController;
 use App\Http\Controllers\Api\AdminUserController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CommonController;
+use App\Http\Controllers\Api\CouponController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\WalletController;
+use App\Http\Controllers\Api\WishlistController;
 use App\Http\Middleware\AdminMiddleware;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
@@ -115,6 +118,14 @@ Route::get('/receipts/{payment}', [OrderController::class, 'showReceipt'])->midd
 |--------------------------------------------------------------------------
 */
 Route::middleware('auth:sanctum')->group(function () {
+    // Coupons
+    Route::post('/coupons/check', [CouponController::class, 'check'])->middleware('throttle:financial')->name('api.coupons.check');
+
+    // Wishlist
+    Route::get('/wishlist', [WishlistController::class, 'index'])->name('api.wishlist.index');
+    Route::post('/wishlist/{id}', [WishlistController::class, 'store'])->name('api.wishlist.store');
+    Route::delete('/wishlist/{id}', [WishlistController::class, 'destroy'])->name('api.wishlist.destroy');
+
     // Wallet
     Route::get('/wallet', [WalletController::class, 'index'])->name('api.wallet.index');
     Route::get('/wallet/transactions', [WalletController::class, 'transactions'])->name('api.wallet.transactions');
@@ -185,6 +196,12 @@ Route::middleware(['auth:sanctum', AdminMiddleware::class])
         Route::post('/consoles', [AdminConsoleController::class, 'store'])->name('api.admin.consoles.store');
         Route::match(['put', 'patch', 'post'], '/consoles/{platform}', [AdminConsoleController::class, 'update'])->name('api.admin.consoles.update');
         Route::delete('/consoles/{platform}', [AdminConsoleController::class, 'destroy'])->name('api.admin.consoles.delete');
+
+        // Coupons
+        Route::get('/coupons', [AdminCouponController::class, 'index'])->name('api.admin.coupons.index');
+        Route::post('/coupons', [AdminCouponController::class, 'store'])->name('api.admin.coupons.store');
+        Route::patch('/coupons/{coupon}', [AdminCouponController::class, 'update'])->whereNumber('coupon')->name('api.admin.coupons.update');
+        Route::delete('/coupons/{coupon}', [AdminCouponController::class, 'destroy'])->whereNumber('coupon')->name('api.admin.coupons.destroy');
 
         // Card-to-card wallet top-ups
         Route::get('/wallet-charges', [AdminCardPaymentController::class, 'walletCharges'])->name('api.admin.wallet-charges');

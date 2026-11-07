@@ -555,7 +555,11 @@ class ApiEndpointsTest extends TestCase
         $delGameRes->assertOk()->assertJson(['ok' => true]);
 
         // 8. Admin delete user
-        $delUserRes = $this->withToken($adminToken)->deleteJson(route('api.admin.users.delete', $newUserId));
+        // This user now has wallet history, which must outlive the account.
+        $this->withToken($adminToken)->deleteJson(route('api.admin.users.delete', $newUserId))->assertUnprocessable();
+        $this->assertDatabaseHas('users', ['id' => $newUserId]);
+
+        $delUserRes = $this->withToken($adminToken)->deleteJson(route('api.admin.users.delete', User::factory()->create()->id));
         $delUserRes->assertOk()->assertJson(['ok' => true]);
     }
 
