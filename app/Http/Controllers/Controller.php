@@ -75,4 +75,9 @@ abstract class Controller
             ],
         ];
     }
+
+    protected function perPage(Request $request, int $default = 15): int
+    {
+        return min(max($request->integer('per_page', $default), 1), 100);
+    }
 }

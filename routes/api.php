@@ -1,9 +1,13 @@
 <?php
 
+use App\Http\Controllers\Api\AdminBannerController;
 use App\Http\Controllers\Api\AdminCardPaymentController;
 use App\Http\Controllers\Api\AdminConsoleController;
 use App\Http\Controllers\Api\AdminController;
+use App\Http\Controllers\Api\AdminGameController;
 use App\Http\Controllers\Api\AdminNotificationController;
+use App\Http\Controllers\Api\AdminOrderController;
+use App\Http\Controllers\Api\AdminUserController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CommonController;
 use App\Http\Controllers\Api\OrderController;
@@ -151,30 +155,30 @@ Route::middleware(['auth:sanctum', AdminMiddleware::class])
         Route::get('/dashboard-stats', [AdminController::class, 'dashboardStats'])->name('api.admin.dashboard-stats');
 
         // Orders Management
-        Route::get('/orders', [AdminController::class, 'orders'])->name('api.admin.orders');
-        Route::get('/orders/{id}', [AdminController::class, 'orderDetail'])->name('api.admin.orders.show');
-        Route::patch('/orders/{id}', [AdminController::class, 'updateOrder'])->name('api.admin.orders.update');
-        Route::match(['patch', 'post'], '/orders/{id}/status', [AdminController::class, 'updateOrderStatus'])->name('api.admin.orders.status');
-        Route::patch('/orders/{id}/payment-status', [AdminController::class, 'updatePaymentStatus'])->name('api.admin.orders.payment-status');
+        Route::get('/orders', [AdminOrderController::class, 'orders'])->name('api.admin.orders');
+        Route::get('/orders/{id}', [AdminOrderController::class, 'orderDetail'])->name('api.admin.orders.show');
+        Route::patch('/orders/{id}', [AdminOrderController::class, 'updateOrder'])->name('api.admin.orders.update');
+        Route::match(['patch', 'post'], '/orders/{id}/status', [AdminOrderController::class, 'updateOrderStatus'])->name('api.admin.orders.status');
+        Route::patch('/orders/{id}/payment-status', [AdminOrderController::class, 'updatePaymentStatus'])->name('api.admin.orders.payment-status');
         Route::post('/orders/{id}/receipt/approve', [AdminCardPaymentController::class, 'approve'])->name('api.admin.orders.receipt.approve');
         Route::post('/orders/{id}/receipt/reject', [AdminCardPaymentController::class, 'reject'])->name('api.admin.orders.receipt.reject');
-        Route::patch('/orders/{id}/items/{itemId}/installation-status', [AdminController::class, 'updateItemInstallationStatus'])->name('api.admin.orders.items.installation');
+        Route::patch('/orders/{id}/items/{itemId}/installation-status', [AdminOrderController::class, 'updateItemInstallationStatus'])->name('api.admin.orders.items.installation');
 
         // Users Management
-        Route::get('/users', [AdminController::class, 'users'])->name('api.admin.users');
-        Route::post('/users', [AdminController::class, 'storeUser'])->name('api.admin.users.store');
-        Route::get('/users/{id}', [AdminController::class, 'userDetail'])->name('api.admin.users.show');
-        Route::patch('/users/{id}', [AdminController::class, 'updateUser'])->name('api.admin.users.update');
-        Route::delete('/users/{id}', [AdminController::class, 'deleteUser'])->name('api.admin.users.delete');
+        Route::get('/users', [AdminUserController::class, 'users'])->name('api.admin.users');
+        Route::post('/users', [AdminUserController::class, 'storeUser'])->name('api.admin.users.store');
+        Route::get('/users/{id}', [AdminUserController::class, 'userDetail'])->name('api.admin.users.show');
+        Route::patch('/users/{id}', [AdminUserController::class, 'updateUser'])->name('api.admin.users.update');
+        Route::delete('/users/{id}', [AdminUserController::class, 'deleteUser'])->name('api.admin.users.delete');
 
         // Games Management
-        Route::get('/games', [AdminController::class, 'games'])->name('api.admin.games.index');
-        Route::get('/games/{id}', [AdminController::class, 'gameDetail'])->name('api.admin.games.show');
-        Route::post('/games', [AdminController::class, 'storeGame'])->name('api.admin.games.store');
-        Route::match(['put', 'patch', 'post'], '/games/{id}', [AdminController::class, 'updateGame'])->name('api.admin.games.update');
-        Route::patch('/games/{id}/pin', [AdminController::class, 'pinGame'])->name('api.admin.games.pin');
-        Route::post('/games/{id}/screenshots', [AdminController::class, 'uploadScreenshots'])->name('api.admin.games.screenshots');
-        Route::delete('/games/{id}', [AdminController::class, 'deleteGame'])->name('api.admin.games.delete');
+        Route::get('/games', [AdminGameController::class, 'games'])->name('api.admin.games.index');
+        Route::get('/games/{id}', [AdminGameController::class, 'gameDetail'])->name('api.admin.games.show');
+        Route::post('/games', [AdminGameController::class, 'storeGame'])->name('api.admin.games.store');
+        Route::match(['put', 'patch', 'post'], '/games/{id}', [AdminGameController::class, 'updateGame'])->name('api.admin.games.update');
+        Route::patch('/games/{id}/pin', [AdminGameController::class, 'pinGame'])->name('api.admin.games.pin');
+        Route::post('/games/{id}/screenshots', [AdminGameController::class, 'uploadScreenshots'])->name('api.admin.games.screenshots');
+        Route::delete('/games/{id}', [AdminGameController::class, 'deleteGame'])->name('api.admin.games.delete');
 
         // Consoles Management
         Route::get('/consoles', [AdminConsoleController::class, 'index'])->name('api.admin.consoles.index');
@@ -193,7 +197,7 @@ Route::middleware(['auth:sanctum', AdminMiddleware::class])
 
         // Financial & Banners
         Route::get('/transactions', [AdminController::class, 'transactions'])->name('api.admin.transactions');
-        Route::get('/banners', [AdminController::class, 'banners'])->name('api.admin.banners');
-        Route::post('/banners', [AdminController::class, 'storeBanner'])->name('api.admin.banners.store');
-        Route::delete('/banners/{id}', [AdminController::class, 'deleteBanner'])->name('api.admin.banners.delete');
+        Route::get('/banners', [AdminBannerController::class, 'banners'])->name('api.admin.banners');
+        Route::post('/banners', [AdminBannerController::class, 'storeBanner'])->name('api.admin.banners.store');
+        Route::delete('/banners/{id}', [AdminBannerController::class, 'deleteBanner'])->name('api.admin.banners.delete');
     });
